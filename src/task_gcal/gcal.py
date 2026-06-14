@@ -1,0 +1,306 @@
+"""Google Calendar client + OAuth bootstrap."""
+
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Optional
+
+from dateutil import parser as dtparser
+from google.auth.exceptions import RefreshError
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+from .config import (
+    CONFIG_DIR,
+    CREDENTIALS_PATH,
+    GOOGLE_SCOPES,
+    SCHEDULER_TAG,
+    Settings,
+    TOKEN_PATH,
+)
+
+
+@dataclass
+class CalEvent:
+    id: str
+    summary: str
+    start: datetime
+    end: datetime
+    task_uuid: Optional[str]
+    raw: dict
+
+
+# Field masks: keep responses small and avoid downloading attendee
+# details, descriptions, conferenceData, etc. that we never read.
+_BUSY_FIELDS = (
+    "nextPageToken,"
+    "items(id,status,transparency,start,end,"
+    "attendees(self,responseStatus))"
+)
+_OUR_FIELDS = (
+    "nextPageToken,"
+    "items(id,summary,description,colorId,visibility,start,end,"
+    "extendedProperties)"
+)
+
+
+def _write_secure(path, content: str) -> None:
+    """Write `content` to `path` with mode 0600 (private)."""
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(content)
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def _ensure_credentials() -> Credentials:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(CONFIG_DIR, 0o700)
+    except OSError:
+        pass
+
+    creds: Optional[Credentials] = None
+    if TOKEN_PATH.exists():
+        creds = Credentials.from_authorized_user_file(
+            str(TOKEN_PATH), GOOGLE_SCOPES
+        )
+    if creds and creds.valid:
+        return creds
+    if creds and creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+        except RefreshError:
+            # Refresh token revoked / expired (e.g. Desktop OAuth client
+            # left in "Testing" expires tokens after 7 days). Discard
+            # and fall through to the interactive flow.
+            try:
+                TOKEN_PATH.unlink()
+            except OSError:
+                pass
+            creds = None
+        else:
+            _write_secure(TOKEN_PATH, creds.to_json())
+            return creds
+
+    if not CREDENTIALS_PATH.exists():
+        raise SystemExit(
+            f"Missing OAuth client secrets at {CREDENTIALS_PATH}.\n"
+            "Create a Google Cloud OAuth client (type: Desktop), download "
+            "the JSON, save it there, then re-run with `--setup`."
+        )
+    try:
+        flow = InstalledAppFlow.from_client_secrets_file(
+            str(CREDENTIALS_PATH), GOOGLE_SCOPES
+        )
+    except (ValueError, json.JSONDecodeError) as e:
+        raise SystemExit(
+            f"{CREDENTIALS_PATH} is not a valid OAuth client secrets file: {e}\n"
+            "Download the JSON for a Desktop OAuth client from\n"
+            "https://console.cloud.google.com/apis/credentials and save\n"
+            "the whole file (it should start with `{\"installed\": ...}`)."
+        ) from None
+    creds = flow.run_local_server(port=0)
+    _write_secure(TOKEN_PATH, creds.to_json())
+    return creds
+
+
+def _parse_when(node: dict) -> Optional[datetime]:
+    if "dateTime" not in node:
+        return None
+    return dtparser.isoparse(node["dateTime"]).astimezone(timezone.utc)
+
+
+def _is_declined_by_self(raw: dict) -> bool:
+    """True if this event is one I declined (matches Google FB semantics)."""
+    for att in raw.get("attendees", []) or []:
+        if att.get("self") and att.get("responseStatus") == "declined":
+            return True
+    return False
+
+
+class GCal:
+    def __init__(self, settings: Settings) -> None:
+        creds = _ensure_credentials()
+        self._svc = build(
+            "calendar", "v3", credentials=creds, cache_discovery=False
+        )
+        self._calendar_id = settings.calendar_id
+
+    # ---------------------------- queries ------------------------------
+
+    def list_scheduler_events(
+        self, time_min: datetime, time_max: datetime
+    ) -> list[CalEvent]:
+        events: list[CalEvent] = []
+        page_token = None
+        while True:
+            resp = (
+                self._svc.events()
+                .list(
+                    calendarId=self._calendar_id,
+                    timeMin=time_min.isoformat(),
+                    timeMax=time_max.isoformat(),
+                    singleEvents=True,
+                    showDeleted=False,
+                    privateExtendedProperty=f"scheduler={SCHEDULER_TAG}",
+                    maxResults=2500,
+                    pageToken=page_token,
+                    fields=_OUR_FIELDS,
+                )
+                .execute(num_retries=3)
+            )
+            for raw in resp.get("items", []):
+                start = _parse_when(raw.get("start", {}))
+                end = _parse_when(raw.get("end", {}))
+                if not start or not end:
+                    continue
+                priv = (raw.get("extendedProperties") or {}).get("private") or {}
+                events.append(
+                    CalEvent(
+                        id=raw["id"],
+                        summary=raw.get("summary", ""),
+                        start=start,
+                        end=end,
+                        task_uuid=priv.get("taskUuid"),
+                        raw=raw,
+                    )
+                )
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+        return events
+
+    def list_busy_events(
+        self,
+        time_min: datetime,
+        time_max: datetime,
+        exclude_event_ids: set[str],
+    ) -> list[tuple[datetime, datetime]]:
+        busy: list[tuple[datetime, datetime]] = []
+        page_token = None
+        while True:
+            resp = (
+                self._svc.events()
+                .list(
+                    calendarId=self._calendar_id,
+                    timeMin=time_min.isoformat(),
+                    timeMax=time_max.isoformat(),
+                    singleEvents=True,
+                    showDeleted=False,
+                    maxResults=2500,
+                    pageToken=page_token,
+                    fields=_BUSY_FIELDS,
+                )
+                .execute(num_retries=3)
+            )
+            for raw in resp.get("items", []):
+                if raw.get("id") in exclude_event_ids:
+                    continue
+                if raw.get("status") == "cancelled":
+                    continue
+                if raw.get("transparency") == "transparent":
+                    continue
+                if _is_declined_by_self(raw):
+                    continue
+                start = _parse_when(raw.get("start", {}))
+                end = _parse_when(raw.get("end", {}))
+                if not start or not end:
+                    continue
+                busy.append((start, end))
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+        busy.sort()
+        return busy
+
+    # ---------------------------- mutations ----------------------------
+
+    def create_event(
+        self,
+        *,
+        task_uuid: str,
+        summary: str,
+        description: str,
+        start: datetime,
+        end: datetime,
+        color_id: str,
+        visibility: str = "private",
+    ) -> str:
+        body = {
+            "summary": summary,
+            "description": description,
+            "colorId": color_id,
+            "visibility": visibility,
+            "start": {"dateTime": start.astimezone(timezone.utc).isoformat()},
+            "end": {"dateTime": end.astimezone(timezone.utc).isoformat()},
+            "extendedProperties": {
+                "private": {
+                    "scheduler": SCHEDULER_TAG,
+                    "taskUuid": task_uuid,
+                }
+            },
+        }
+        created = (
+            self._svc.events()
+            .insert(calendarId=self._calendar_id, body=body)
+            .execute(num_retries=3)
+        )
+        return created["id"]
+
+    def patch_event(
+        self,
+        event_id: str,
+        *,
+        summary: Optional[str] = None,
+        description: Optional[str] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        color_id: Optional[str] = None,
+        visibility: Optional[str] = None,
+    ) -> bool:
+        """Patch an event. Returns False if the event was already gone."""
+        body: dict = {}
+        if summary is not None:
+            body["summary"] = summary
+        if description is not None:
+            body["description"] = description
+        if start is not None:
+            body["start"] = {"dateTime": start.astimezone(timezone.utc).isoformat()}
+        if end is not None:
+            body["end"] = {"dateTime": end.astimezone(timezone.utc).isoformat()}
+        if color_id is not None:
+            body["colorId"] = color_id
+        if visibility is not None:
+            body["visibility"] = visibility
+        if not body:
+            return True
+        try:
+            self._svc.events().patch(
+                calendarId=self._calendar_id, eventId=event_id, body=body
+            ).execute(num_retries=3)
+            return True
+        except HttpError as e:
+            if e.resp.status in (404, 410):
+                return False
+            raise
+
+    def delete_event(self, event_id: str) -> bool:
+        """Delete; treat 404/410 as success (already gone)."""
+        try:
+            self._svc.events().delete(
+                calendarId=self._calendar_id, eventId=event_id
+            ).execute(num_retries=3)
+            return True
+        except HttpError as e:
+            if e.resp.status in (404, 410):
+                return True
+            raise
