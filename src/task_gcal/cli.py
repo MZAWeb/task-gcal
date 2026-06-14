@@ -356,6 +356,11 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
 # Reporting
 # ---------------------------------------------------------------------------
 
+def _override_flag(t: TaskInfo) -> str:
+    """A trailing marker showing the per-task overrides that were applied."""
+    return f"  [override: {t.overrides_raw}]" if t.overrides_raw else ""
+
+
 def _print_report(
     *,
     placed,
@@ -381,7 +386,7 @@ def _print_report(
             tag = " [OVERDUE]" if was_overdue else ""
             print(
                 f"  [{action:<9}] {s}-{e}  u={t.urgency:5.2f}{tag}  "
-                f"{t.ref} {t.description}"
+                f"{t.ref} {t.description}{_override_flag(t)}"
             )
         print()
 
@@ -427,7 +432,7 @@ def _print_report(
             due = t.due.astimezone(tz).strftime(fmt) if t.due else "(no due)"
             print(
                 f"  - u={t.urgency:5.2f}  est={t.estimate_minutes}m  due={due}  "
-                f"{t.ref} {t.description}"
+                f"{t.ref} {t.description}{_override_flag(t)}"
             )
         print()
 
