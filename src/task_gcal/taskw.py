@@ -31,6 +31,7 @@ class TaskInfo:
     estimate_minutes: Optional[int]
     project: Optional[str]
     tags: list[str]
+    annotations: list[str]  # annotation texts, in Taskwarrior order
     overrides_raw: Optional[str]  # raw per-task override UDA value, unparsed
 
     @property
@@ -52,6 +53,22 @@ class TaskInfo:
         """
         floors = [d for d in (self.scheduled, self.wait) if d is not None]
         return max(floors) if floors else None
+
+
+def _parse_annotations(raw) -> list[str]:
+    """Extract annotation texts from a Taskwarrior `annotations` array.
+
+    Each entry is `{"entry": <ts>, "description": <text>}`; we keep the
+    text in export order (chronological). Non-dict / empty entries are
+    skipped.
+    """
+    out: list[str] = []
+    for a in raw or []:
+        if isinstance(a, dict):
+            text = a.get("description")
+            if text:
+                out.append(text)
+    return out
 
 
 def _coerce_estimate(raw) -> Optional[int]:
@@ -130,6 +147,7 @@ def load_next_tasks(
                 estimate_minutes=_coerce_estimate(row.get(estimate_uda)),
                 project=row.get("project"),
                 tags=list(row.get("tags") or []),
+                annotations=_parse_annotations(row.get("annotations")),
                 overrides_raw=row.get(override_uda) or None,
             )
         )

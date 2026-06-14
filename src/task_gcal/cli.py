@@ -43,6 +43,10 @@ def _event_description(t: TaskInfo, tz: tzinfo) -> str:
         parts.append(
             f"Due: {t.due.astimezone(tz).strftime('%Y-%m-%d %H:%M %Z')}"
         )
+    if t.annotations:
+        parts.append("")
+        parts.append("Annotations:")
+        parts.extend(f"  {a}" for a in t.annotations)
     parts.append("")
     parts.append(
         "Managed by task-gcal. Edits to time/title may be overwritten on next run."
