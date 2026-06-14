@@ -51,7 +51,8 @@ calendar mutations.
 ## Setup
 
 1. Add a numeric UDA to Taskwarrior to hold each task's duration (in
-   minutes), e.g. in `~/.taskrc`:
+   minutes), in your Taskwarrior config (`~/.taskrc`, or
+   `~/.config/task/taskrc` on an XDG setup):
 
    ```
    uda.estimate.type=numeric
@@ -125,6 +126,38 @@ Pointing `calendar_id` at a dedicated calendar (e.g. one called
 "task-gcal") is the safest setup -- the tool only ever touches events
 on the configured calendar, but using a non-primary calendar means a
 bug here can't ever delete a meeting.
+
+### Per-task overrides
+
+Individual tasks can override scheduling settings via a string UDA
+(named `gcal` by default; configurable with `override_uda` /
+`--override-uda`). Declare it once in your Taskwarrior config:
+
+```
+uda.gcal.type=string
+uda.gcal.label=gcal
+```
+
+Then attach `key=value` pairs (whitespace-separated; same key names as
+the config file) to any task:
+
+```bash
+# Fine to run this long task until 8pm.
+task add "write the big report" estimate:240 due:fri gcal:'work_end_hour=20'
+
+# This one doesn't need the usual buffer around it.
+task add "quick prep" estimate:10 gcal:'buffer_minutes=0'
+
+# Only schedule on Mon/Wed/Fri (commas separate list values).
+task add "weekly sync notes" estimate:30 gcal:'work_days=0,2,4'
+```
+
+Precedence is **defaults → `config.toml` → CLI flags → per-task UDA**.
+Overridable keys: `work_start_hour`, `work_end_hour`, `work_days`,
+`slot_align_minutes`, `buffer_minutes`, `event_color_id`,
+`overdue_horizon_days`. Run-global keys (`calendar_id`, `timezone`,
+`report`, etc.) can't be set per task; a typo or unknown key prints a
+warning (naming the task) and the task falls back to global settings.
 
 ## Auth and security notes
 

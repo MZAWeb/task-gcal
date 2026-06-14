@@ -14,7 +14,9 @@ from .config import (
     VISIBILITY_CHOICES,
     Settings,
     apply_overrides,
+    coerce_work_days,
     load_settings,
+    parse_task_overrides,
 )
 from .gcal import CalEvent, GCal
 from .progress import Progress
@@ -77,8 +79,29 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
     tz = settings.resolve_timezone()
     now = datetime.now(timezone.utc)
 
-    tasks = load_next_tasks(settings.report, estimate_uda=settings.estimate_uda)
+    tasks = load_next_tasks(
+        settings.report,
+        estimate_uda=settings.estimate_uda,
+        override_uda=settings.override_uda,
+    )
     next_uuids = {t.uuid for t in tasks}
+
+    # Resolve each task's effective Settings from its override UDA up front,
+    # so the horizon below can account for per-task overdue windows. A bad
+    # override warns and falls back to the global settings.
+    task_settings: dict[str, Settings] = {}
+    for t in tasks:
+        s = settings
+        if t.overrides_raw:
+            try:
+                s = apply_overrides(settings, parse_task_overrides(t.overrides_raw))
+            except ValueError as e:
+                print(
+                    f"  ! ignoring {settings.override_uda} override on "
+                    f"{t.ref}: {e}",
+                    file=sys.stderr,
+                )
+        task_settings[t.uuid] = s
 
     gcal = GCal(settings)
 
@@ -87,8 +110,13 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
     for t in tasks:
         if t.due and t.due > horizon_end:
             horizon_end = t.due
-    # Account for overdue tasks scheduled into the future.
-    overdue_horizon = now + timedelta(days=settings.overdue_horizon_days)
+    # Account for overdue tasks scheduled into the future, honoring the
+    # largest overdue window in play (global or any per-task override).
+    max_overdue_days = max(
+        [settings.overdue_horizon_days]
+        + [task_settings[t.uuid].overdue_horizon_days for t in tasks]
+    )
+    overdue_horizon = now + timedelta(days=max_overdue_days)
     if overdue_horizon > horizon_end:
         horizon_end = overdue_horizon
     horizon_end = horizon_end + timedelta(days=1)
@@ -131,7 +159,8 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
     removed_duplicates: list[str] = []
 
     def _delete(ev: CalEvent, bucket: list[str], tag: str = "") -> None:
-        label = f"{tag}{ev.summary or ev.id}"
+        ref = f"{ev.task_uuid[:8]} " if ev.task_uuid else ""
+        label = f"{tag}{ref}{ev.summary or ev.id}"
         if not dry_run:
             try:
                 gcal.delete_event(ev.id)
@@ -198,8 +227,11 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
             _drop_existing_if_future(t.uuid, "no due date")
             continue
 
+        # Per-task effective settings (global + any `gcal` UDA override).
+        ts = task_settings[t.uuid]
+
         # Adjust a midnight due date to end of that working day.
-        due = _effective_due(t.due, tz, settings)
+        due = _effective_due(t.due, tz, ts)
 
         # Honor `scheduled`/`wait`: never place the task before that date.
         # The floor is inclusive, so a slot may start on the date itself.
@@ -214,7 +246,7 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
         # flag it in the report.
         was_overdue = due <= now
         effective_deadline = (
-            now + timedelta(days=settings.overdue_horizon_days)
+            now + timedelta(days=ts.overdue_horizon_days)
             if was_overdue
             else due
         )
@@ -225,7 +257,7 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
             deadline=effective_deadline,
             busy=busy,
             tz=tz,
-            settings=settings,
+            settings=ts,
         )
         if slot is None:
             unschedulable.append(t)
@@ -251,8 +283,8 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
                     description=description,
                     start=start_utc,
                     end=end_utc,
-                    color_id=settings.event_color_id,
-                    visibility=settings.event_visibility,
+                    color_id=ts.event_color_id,
+                    visibility=ts.event_visibility,
                 )
         else:
             need_summary = existing_ev.summary != summary
@@ -262,9 +294,9 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
             )
             existing_desc = existing_ev.raw.get("description") or ""
             need_desc = existing_desc != description
-            need_color = existing_ev.raw.get("colorId") != settings.event_color_id
+            need_color = existing_ev.raw.get("colorId") != ts.event_color_id
             need_visibility = (
-                existing_ev.raw.get("visibility") != settings.event_visibility
+                existing_ev.raw.get("visibility") != ts.event_visibility
             )
             if (
                 need_summary
@@ -281,9 +313,9 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
                         description=description if need_desc else None,
                         start=start_utc if need_time else None,
                         end=end_utc if need_time else None,
-                        color_id=settings.event_color_id if need_color else None,
+                        color_id=ts.event_color_id if need_color else None,
                         visibility=(
-                            settings.event_visibility if need_visibility else None
+                            ts.event_visibility if need_visibility else None
                         ),
                     )
                     if not ok:
@@ -294,8 +326,8 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
                             description=description,
                             start=start_utc,
                             end=end_utc,
-                            color_id=settings.event_color_id,
-                            visibility=settings.event_visibility,
+                            color_id=ts.event_color_id,
+                            visibility=ts.event_visibility,
                         )
                         action = "create"
             else:
@@ -348,7 +380,8 @@ def _print_report(
             e = end.astimezone(tz).strftime("%H:%M")
             tag = " [OVERDUE]" if was_overdue else ""
             print(
-                f"  [{action:<9}] {s}-{e}  u={t.urgency:5.2f}{tag}  {t.description}"
+                f"  [{action:<9}] {s}-{e}  u={t.urgency:5.2f}{tag}  "
+                f"{t.ref} {t.description}"
             )
         print()
 
@@ -379,13 +412,13 @@ def _print_report(
     if no_estimate:
         print(f"Skipped: no `estimate` UDA ({len(no_estimate)}):")
         for t in no_estimate:
-            print(f"  - u={t.urgency:5.2f}  {t.description}")
+            print(f"  - u={t.urgency:5.2f}  {t.ref} {t.description}")
         print()
 
     if no_due:
         print(f"Skipped: no due date ({len(no_due)}):")
         for t in no_due:
-            print(f"  - u={t.urgency:5.2f}  {t.description}")
+            print(f"  - u={t.urgency:5.2f}  {t.ref} {t.description}")
         print()
 
     if unschedulable:
@@ -394,7 +427,7 @@ def _print_report(
             due = t.due.astimezone(tz).strftime(fmt) if t.due else "(no due)"
             print(
                 f"  - u={t.urgency:5.2f}  est={t.estimate_minutes}m  due={due}  "
-                f"{t.description}"
+                f"{t.ref} {t.description}"
             )
         print()
 
@@ -415,26 +448,11 @@ def _print_report(
 # ---------------------------------------------------------------------------
 
 def _parse_work_days(raw: str) -> frozenset[int]:
-    """Parse a comma-separated weekday list (0=Mon .. 6=Sun)."""
-    days: set[int] = set()
-    for part in raw.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        try:
-            d = int(part)
-        except ValueError:
-            raise argparse.ArgumentTypeError(
-                f"invalid weekday {part!r} (use integers 0=Mon .. 6=Sun)"
-            ) from None
-        if not 0 <= d <= 6:
-            raise argparse.ArgumentTypeError(
-                f"weekday {d} out of range (0=Mon .. 6=Sun)"
-            )
-        days.add(d)
-    if not days:
-        raise argparse.ArgumentTypeError("work days list is empty")
-    return frozenset(days)
+    """argparse adapter around `coerce_work_days` (0=Mon .. 6=Sun)."""
+    try:
+        return coerce_work_days(raw)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
 
 
 # CLI flags that override config.toml / defaults. `dest` matches the
@@ -454,6 +472,7 @@ _OVERRIDE_DESTS = (
     "timezone",
     "overdue_horizon_days",
     "lookback_days",
+    "override_uda",
 )
 
 
@@ -491,6 +510,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--estimate-uda", dest="estimate_uda", metavar="NAME",
         help="Taskwarrior UDA holding the time estimate in minutes "
              "(default: estimate).",
+    )
+    g.add_argument(
+        "--override-uda", dest="override_uda", metavar="NAME",
+        help="Taskwarrior UDA holding inline per-task overrides, e.g. "
+             "gcal:'work_end_hour=20 buffer_minutes=0' (default: gcal).",
     )
     g.add_argument(
         "--timezone", dest="timezone", metavar="ZONE",

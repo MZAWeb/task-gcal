@@ -22,6 +22,7 @@ from dateutil import parser as dtparser
 @dataclass
 class TaskInfo:
     uuid: str
+    id: int  # Taskwarrior short id; 0 when the task isn't pending
     description: str
     urgency: float
     due: Optional[datetime]  # tz-aware UTC
@@ -30,6 +31,17 @@ class TaskInfo:
     estimate_minutes: Optional[int]
     project: Optional[str]
     tags: list[str]
+    overrides_raw: Optional[str]  # raw per-task override UDA value, unparsed
+
+    @property
+    def ref(self) -> str:
+        """Human-facing identifier for reports.
+
+        Prefer the short Taskwarrior id (e.g. `#42`, what you'd type to
+        act on the task); fall back to a uuid prefix when there's no
+        short id (Taskwarrior accepts uuid prefixes too).
+        """
+        return f"#{self.id}" if self.id else self.uuid[:8]
 
     @property
     def earliest_start(self) -> Optional[datetime]:
@@ -70,7 +82,8 @@ def _parse_tw_datetime(raw: Optional[str]) -> Optional[datetime]:
 
 
 def load_next_tasks(
-    report: str = "next", *, estimate_uda: str = "estimate"
+    report: str = "next", *, estimate_uda: str = "estimate",
+    override_uda: str = "gcal",
 ) -> list[TaskInfo]:
     """Load tasks from the given Taskwarrior report.
 
@@ -108,6 +121,7 @@ def load_next_tasks(
         tasks.append(
             TaskInfo(
                 uuid=uuid,
+                id=int(row.get("id") or 0),
                 description=row.get("description") or "(no description)",
                 urgency=float(row.get("urgency") or 0.0),
                 due=_parse_tw_datetime(row.get("due")),
@@ -116,6 +130,7 @@ def load_next_tasks(
                 estimate_minutes=_coerce_estimate(row.get(estimate_uda)),
                 project=row.get("project"),
                 tags=list(row.get("tags") or []),
+                overrides_raw=row.get(override_uda) or None,
             )
         )
     return tasks

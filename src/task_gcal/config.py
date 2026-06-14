@@ -20,11 +20,13 @@ Example config.toml:
     timezone        = "Europe/London"   # omit to use the system local zone
     overdue_horizon_days = 30
     lookback_days   = 7
+    override_uda    = "gcal"            # task UDA holding per-task overrides
 """
 
 from __future__ import annotations
 
 import os
+import re
 import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -81,6 +83,9 @@ class Settings:
     # How far in the past to look for our own previously-created events
     # when reconciling. Bounds the events.list query.
     lookback_days: int = 7
+    # Taskwarrior UDA holding inline per-task overrides (see
+    # `parse_task_overrides`).
+    override_uda: str = "gcal"
 
     def resolve_timezone(self):
         """Return the tzinfo to schedule in: configured zone, else local."""
@@ -120,6 +125,7 @@ def load_settings() -> Settings:
             get("overdue_horizon_days", defaults.overdue_horizon_days)
         ),
         lookback_days=int(get("lookback_days", defaults.lookback_days)),
+        override_uda=str(get("override_uda", defaults.override_uda)),
     )
 
 
@@ -130,3 +136,57 @@ def apply_overrides(settings: Settings, overrides: dict) -> Settings:
     """
     filtered = {k: v for k, v in overrides.items() if v is not None}
     return replace(settings, **filtered) if filtered else settings
+
+
+def coerce_work_days(raw: str) -> frozenset[int]:
+    """Parse a comma/space-separated weekday list (0=Mon .. 6=Sun)."""
+    days = {int(p) for p in re.split(r"[,\s]+", raw.strip()) if p}
+    if not days:
+        raise ValueError("work days list is empty")
+    bad = sorted(d for d in days if not 0 <= d <= 6)
+    if bad:
+        raise ValueError(f"weekday(s) out of range (0=Mon..6=Sun): {bad}")
+    return frozenset(days)
+
+
+# Settings keys that make sense to override per task, each with a value
+# coercer. Run-global keys (calendar_id, timezone, report, estimate_uda,
+# lookback_days, override_uda) are deliberately excluded.
+_TASK_OVERRIDE_COERCE = {
+    "work_start_hour": int,
+    "work_end_hour": int,
+    "work_days": coerce_work_days,
+    "slot_align_minutes": int,
+    "buffer_minutes": int,
+    "event_color_id": str,
+    "overdue_horizon_days": int,
+}
+
+
+def parse_task_overrides(raw: str) -> dict:
+    """Parse an inline per-task override string into a Settings-override dict.
+
+    Pairs are ``key=value``, separated by whitespace; commas are reserved
+    for list values (e.g. ``work_days``). Unknown or non-per-task keys, and
+    unparseable values, raise ``ValueError`` (the caller turns that into a
+    warning and falls back to global settings).
+
+        "work_end_hour=20 buffer_minutes=0"  ->  {"work_end_hour": 20, ...}
+        "work_days=0,2,4"                     ->  {"work_days": frozenset(...)}
+    """
+    overrides: dict = {}
+    for tok in raw.split():
+        if not tok:
+            continue
+        key, sep, val = tok.partition("=")
+        if not sep:
+            raise ValueError(f"expected key=value, got {tok!r}")
+        key = key.strip()
+        coerce = _TASK_OVERRIDE_COERCE.get(key)
+        if coerce is None:
+            raise ValueError(f"unknown or non-per-task key {key!r}")
+        try:
+            overrides[key] = coerce(val.strip())
+        except ValueError as e:
+            raise ValueError(f"bad value for {key}={val.strip()!r}: {e}") from None
+    return overrides
