@@ -356,6 +356,11 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
 # Reporting
 # ---------------------------------------------------------------------------
 
+def _est(t: TaskInfo) -> str:
+    """Estimate column; `—` when the task has no estimate."""
+    return f"est={t.estimate_minutes}m" if t.estimate_minutes is not None else "est=—"
+
+
 def _override_flag(t: TaskInfo) -> str:
     """A trailing marker showing the per-task overrides that were applied."""
     return f"  [override: {t.overrides_raw}]" if t.overrides_raw else ""
@@ -385,7 +390,7 @@ def _print_report(
             e = end.astimezone(tz).strftime("%H:%M")
             tag = " [OVERDUE]" if was_overdue else ""
             print(
-                f"  [{action:<9}] {s}-{e}  u={t.urgency:5.2f}{tag}  "
+                f"  [{action:<9}] {s}-{e}  u={t.urgency:5.2f}  {_est(t)}{tag}  "
                 f"{t.ref} {t.description}{_override_flag(t)}"
             )
         print()
@@ -417,13 +422,13 @@ def _print_report(
     if no_estimate:
         print(f"Skipped: no `estimate` UDA ({len(no_estimate)}):")
         for t in no_estimate:
-            print(f"  - u={t.urgency:5.2f}  {t.ref} {t.description}")
+            print(f"  - u={t.urgency:5.2f}  {_est(t)}  {t.ref} {t.description}")
         print()
 
     if no_due:
         print(f"Skipped: no due date ({len(no_due)}):")
         for t in no_due:
-            print(f"  - u={t.urgency:5.2f}  {t.ref} {t.description}")
+            print(f"  - u={t.urgency:5.2f}  {_est(t)}  {t.ref} {t.description}")
         print()
 
     if unschedulable:
@@ -431,7 +436,7 @@ def _print_report(
         for t in unschedulable:
             due = t.due.astimezone(tz).strftime(fmt) if t.due else "(no due)"
             print(
-                f"  - u={t.urgency:5.2f}  est={t.estimate_minutes}m  due={due}  "
+                f"  - u={t.urgency:5.2f}  {_est(t)}  due={due}  "
                 f"{t.ref} {t.description}{_override_flag(t)}"
             )
         print()
