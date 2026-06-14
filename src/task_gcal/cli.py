@@ -357,8 +357,12 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
 # ---------------------------------------------------------------------------
 
 def _est(t: TaskInfo) -> str:
-    """Estimate column; `—` when the task has no estimate."""
-    return f"est={t.estimate_minutes}m" if t.estimate_minutes is not None else "est=—"
+    """Estimate column, right-aligned to 3 digits so later columns line up.
+
+    `—` when the task has no estimate; estimates over 999m just widen.
+    """
+    val = f"{t.estimate_minutes}m" if t.estimate_minutes is not None else "—"
+    return f"est={val:>4}"
 
 
 def _override_flag(t: TaskInfo) -> str:
