@@ -42,7 +42,9 @@ calendar mutations.
 
 ## Requirements
 
-- Python 3.10+
+- [uv](https://docs.astral.sh/uv/) (it manages the Python toolchain and
+  dependencies for you)
+- Python 3.10+ (uv will fetch one if you don't have it)
 - [Taskwarrior](https://taskwarrior.org/) 3.x on your `PATH` (tested
   against 3.4)
 - A Google account and a Google Cloud OAuth client (type: Desktop) —
@@ -67,12 +69,21 @@ calendar mutations.
 2. Create a Google Cloud OAuth client (type: Desktop), download the
    JSON, and save it as `~/.config/task-gcal/credentials.json`.
 
-3. Install:
+3. Install. As a standalone CLI tool (recommended) with
+   [uv](https://docs.astral.sh/uv/):
 
    ```
-   pip install -e .          # from a local checkout
+   uv tool install .          # from a local checkout
    # or, once published:
-   # pip install git+https://github.com/MZAWeb/task-gcal
+   # uv tool install git+https://github.com/MZAWeb/task-gcal
+   ```
+
+   This puts `task-gcal` on your `PATH`. To hack on the code instead, use
+   a synced project environment and prefix commands with `uv run`:
+
+   ```
+   uv sync                    # create .venv with deps + the project
+   uv run task-gcal --help
    ```
 
 4. Authorize:
