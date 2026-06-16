@@ -203,7 +203,7 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
     no_due: list[TaskInfo] = []
     unschedulable: list[TaskInfo] = []
     placed: list[tuple[TaskInfo, datetime, datetime, str, bool]] = []
-    # (task, start, end, action, was_overdue)
+    # (task, start, end, action, past_due)
     removed_stale: list[str] = []
 
     def _drop_existing_if_future(uuid: str, why: str) -> None:
@@ -247,8 +247,16 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
         # Overdue policy: if the task is past due, we still schedule it
         # ASAP. The effective deadline is pushed out so the slot search
         # has room. The task remains "overdue" in the user's eyes; we
-        # flag it in the report.
-        was_overdue = due <= now
+        # flag it prominently in the report.
+        #
+        # Judge overdue-ness from the *raw* due date, not the end-of-day
+        # adjusted one: a date-only `due:today` is midnight today, which
+        # has already passed (Taskwarrior sets +OVERDUE for it too). Using
+        # the bumped end-of-day value here would mask that and drop the
+        # task ("could not fit before due date") instead of letting it
+        # spill past today. The earliest-slot search still prefers today
+        # when a slot is free; the horizon only matters once today fills.
+        was_overdue = t.due <= now
         effective_deadline = (
             now + timedelta(days=ts.overdue_horizon_days)
             if was_overdue
@@ -337,7 +345,13 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
             else:
                 action = "unchanged"
 
-        placed.append((t, start, end, action, was_overdue))
+        # "Past due" for the report means the chosen slot actually starts
+        # after the (end-of-day-adjusted) due date — i.e. the task could
+        # not be done in time and spilled. A `due:today` task scheduled
+        # later today is overdue but not "past due", so it stays in the
+        # normal list and doesn't trip the warning.
+        past_due = start_utc > due
+        placed.append((t, start, end, action, past_due))
         bisect.insort(busy, (start_utc, end_utc))
 
     sched_prog.close()
@@ -391,14 +405,37 @@ def _print_report(
     if dry_run:
         print("# DRY RUN -- no changes will be made\n")
 
-    if placed:
-        print(f"Scheduled ({len(placed)}):")
-        for t, start, end, action, was_overdue in placed:
+    # Tasks that spilled past their due date get their own prominent
+    # section up top so a missed deadline can't hide in a long list.
+    overdue = [p for p in placed if p[4]]
+    on_time = [p for p in placed if not p[4]]
+
+    if overdue:
+        print(f"Overdue — scheduled past due date ({len(overdue)}):")
+        print(
+            "  (couldn't fit in time — reschedule, change the due date, "
+            "or make room)"
+        )
+        for t, start, end, action, _ in overdue:
             s = start.astimezone(tz).strftime(fmt)
             e = end.astimezone(tz).strftime("%H:%M")
-            tag = " [OVERDUE]" if was_overdue else ""
+            due_s = (
+                t.due.astimezone(tz).strftime("%a %Y-%m-%d %H:%M")
+                if t.due else "(no due)"
+            )
             print(
-                f"  [{action:<9}] {s}-{e}  u={t.urgency:5.2f}  {_est(t)}{tag}  "
+                f"  ! [{action:<9}] {s}-{e}  u={t.urgency:5.2f}  {_est(t)}  "
+                f"{t.ref} {t.description}  (due {due_s}){_override_flag(t)}"
+            )
+        print()
+
+    if on_time:
+        print(f"Scheduled ({len(on_time)}):")
+        for t, start, end, action, _ in on_time:
+            s = start.astimezone(tz).strftime(fmt)
+            e = end.astimezone(tz).strftime("%H:%M")
+            print(
+                f"  [{action:<9}] {s}-{e}  u={t.urgency:5.2f}  {_est(t)}  "
                 f"{t.ref} {t.description}{_override_flag(t)}"
             )
         print()
