@@ -86,6 +86,10 @@ class Settings:
     # Taskwarrior UDA holding inline per-task overrides (see
     # `parse_task_overrides`).
     override_uda: str = "gcal"
+    # Email addresses to invite to created events. Empty by default and
+    # only ever set per task (via the override UDA), never globally: you
+    # don't want every task event to invite the same people.
+    attendees: tuple[str, ...] = ()
 
     def resolve_timezone(self):
         """Return the tzinfo to schedule in: configured zone, else local."""
@@ -149,6 +153,32 @@ def coerce_work_days(raw: str) -> frozenset[int]:
     return frozenset(days)
 
 
+# A pragmatic email check: one `@`, no whitespace, and a dotted domain.
+# Not RFC-complete (nor should it be); just enough to catch typos before
+# we hand the address to Google as an attendee.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def coerce_attendees(raw: str) -> tuple[str, ...]:
+    """Parse a comma-separated list of attendee email addresses.
+
+    Whitespace around each address is ignored. Duplicates are dropped
+    while preserving first-seen order. Raises ``ValueError`` if the list
+    is empty or any address looks malformed.
+    """
+    seen: dict[str, None] = {}
+    for part in raw.split(","):
+        email = part.strip()
+        if not email:
+            continue
+        if not _EMAIL_RE.match(email):
+            raise ValueError(f"not a valid email address: {email!r}")
+        seen.setdefault(email, None)
+    if not seen:
+        raise ValueError("no email addresses given")
+    return tuple(seen)
+
+
 # Settings keys that make sense to override per task, each with a value
 # coercer. Run-global keys (calendar_id, timezone, report, estimate_uda,
 # lookback_days, override_uda) are deliberately excluded.
@@ -160,6 +190,7 @@ _TASK_OVERRIDE_COERCE = {
     "buffer_minutes": int,
     "event_color_id": str,
     "overdue_horizon_days": int,
+    "attendees": coerce_attendees,
 }
 
 

@@ -150,14 +150,25 @@ task add "quick prep" estimate:10 gcal:'buffer_minutes=0'
 
 # Only schedule on Mon/Wed/Fri (commas separate list values).
 task add "weekly sync notes" estimate:30 gcal:'work_days=0,2,4'
+
+# Invite people to the event, to share the task (commas separate addresses).
+task add "draft Q3 deck" estimate:90 due:fri gcal:'attendees=alice@co.com,bob@co.com'
 ```
 
 Precedence is **defaults → `config.toml` → CLI flags → per-task UDA**.
 Overridable keys: `work_start_hour`, `work_end_hour`, `work_days`,
 `slot_align_minutes`, `buffer_minutes`, `event_color_id`,
-`overdue_horizon_days`. Run-global keys (`calendar_id`, `timezone`,
-`report`, etc.) can't be set per task; a typo or unknown key prints a
-warning (naming the task) and the task falls back to global settings.
+`overdue_horizon_days`, `attendees`. Run-global keys (`calendar_id`,
+`timezone`, `report`, etc.) can't be set per task; a typo or unknown key
+prints a warning (naming the task) and the task falls back to global
+settings.
+
+`attendees` is **per-task only** (it has no `config.toml` key or CLI flag --
+you rarely want to invite the same people to *every* task). The addresses are
+invited and **emailed** an invitation. It's **additive**: new addresses are
+added on each run, but removing an address from the UDA does not un-invite
+anyone, and attendees you add by hand in Google Calendar are preserved. Invited
+people can see the event even though it's created with `visibility=private`.
 
 ## Auth and security notes
 

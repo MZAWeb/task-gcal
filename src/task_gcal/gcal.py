@@ -46,7 +46,7 @@ _BUSY_FIELDS = (
 _OUR_FIELDS = (
     "nextPageToken,"
     "items(id,summary,description,colorId,visibility,start,end,"
-    "extendedProperties)"
+    "attendees,extendedProperties)"
 )
 
 
@@ -234,6 +234,7 @@ class GCal:
         end: datetime,
         color_id: str,
         visibility: str = "private",
+        attendees: tuple[str, ...] = (),
     ) -> str:
         body = {
             "summary": summary,
@@ -249,9 +250,14 @@ class GCal:
                 }
             },
         }
+        kwargs: dict = {}
+        if attendees:
+            body["attendees"] = [{"email": e} for e in attendees]
+            # Email the invitees; without this the API adds them silently.
+            kwargs["sendUpdates"] = "all"
         created = (
             self._svc.events()
-            .insert(calendarId=self._calendar_id, body=body)
+            .insert(calendarId=self._calendar_id, body=body, **kwargs)
             .execute(num_retries=3)
         )
         return created["id"]
@@ -266,8 +272,14 @@ class GCal:
         end: Optional[datetime] = None,
         color_id: Optional[str] = None,
         visibility: Optional[str] = None,
+        attendees: Optional[list[dict]] = None,
     ) -> bool:
-        """Patch an event. Returns False if the event was already gone."""
+        """Patch an event. Returns False if the event was already gone.
+
+        `attendees`, when given, is the full desired attendee list (the
+        API replaces the array wholesale); pass existing + new to add
+        people without dropping anyone. Supplying it emails the invitees.
+        """
         body: dict = {}
         if summary is not None:
             body["summary"] = summary
@@ -281,11 +293,18 @@ class GCal:
             body["colorId"] = color_id
         if visibility is not None:
             body["visibility"] = visibility
+        kwargs: dict = {}
+        if attendees is not None:
+            body["attendees"] = attendees
+            kwargs["sendUpdates"] = "all"
         if not body:
             return True
         try:
             self._svc.events().patch(
-                calendarId=self._calendar_id, eventId=event_id, body=body
+                calendarId=self._calendar_id,
+                eventId=event_id,
+                body=body,
+                **kwargs,
             ).execute(num_retries=3)
             return True
         except HttpError as e:

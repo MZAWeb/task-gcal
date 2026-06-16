@@ -289,6 +289,7 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
                     end=end_utc,
                     color_id=ts.event_color_id,
                     visibility=ts.event_visibility,
+                    attendees=ts.attendees,
                 )
         else:
             need_summary = existing_ev.summary != summary
@@ -302,12 +303,23 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
             need_visibility = (
                 existing_ev.raw.get("visibility") != ts.event_visibility
             )
+            # Additive: invite UDA addresses that aren't already on the
+            # event; never drop anyone (preserves manual attendees).
+            existing_atts = existing_ev.raw.get("attendees") or []
+            existing_emails = {
+                (a.get("email") or "").lower() for a in existing_atts
+            }
+            new_atts = [
+                e for e in ts.attendees if e.lower() not in existing_emails
+            ]
+            need_attendees = bool(new_atts)
             if (
                 need_summary
                 or need_time
                 or need_desc
                 or need_color
                 or need_visibility
+                or need_attendees
             ):
                 action = "update"
                 if not dry_run:
@@ -321,6 +333,11 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
                         visibility=(
                             ts.event_visibility if need_visibility else None
                         ),
+                        attendees=(
+                            existing_atts + [{"email": e} for e in new_atts]
+                            if need_attendees
+                            else None
+                        ),
                     )
                     if not ok:
                         # Event vanished between list and patch; recreate.
@@ -332,6 +349,7 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
                             end=end_utc,
                             color_id=ts.event_color_id,
                             visibility=ts.event_visibility,
+                            attendees=ts.attendees,
                         )
                         action = "create"
             else:
