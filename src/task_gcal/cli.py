@@ -423,29 +423,11 @@ def _print_report(
     if dry_run:
         print("# DRY RUN -- no changes will be made\n")
 
-    # Tasks that spilled past their due date get their own prominent
-    # section up top so a missed deadline can't hide in a long list.
+    # Tasks that spilled past their due date get their own section,
+    # printed last (see below) so it lands at the bottom of the output
+    # where it won't scroll out of view behind a long schedule.
     overdue = [p for p in placed if p[4]]
     on_time = [p for p in placed if not p[4]]
-
-    if overdue:
-        print(f"Overdue — scheduled past due date ({len(overdue)}):")
-        print(
-            "  (couldn't fit in time — reschedule, change the due date, "
-            "or make room)"
-        )
-        for t, start, end, action, _ in overdue:
-            s = start.astimezone(tz).strftime(fmt)
-            e = end.astimezone(tz).strftime("%H:%M")
-            due_s = (
-                t.due.astimezone(tz).strftime("%a %Y-%m-%d %H:%M")
-                if t.due else "(no due)"
-            )
-            print(
-                f"  ! [{action:<9}] {s}-{e}  u={t.urgency:5.2f}  {_est(t)}  "
-                f"{t.ref} {t.description}  (due {due_s}){_override_flag(t)}"
-            )
-        print()
 
     if on_time:
         print(f"Scheduled ({len(on_time)}):")
@@ -514,6 +496,27 @@ def _print_report(
         or unschedulable
     ):
         print("Nothing to do.")
+
+    # Printed last, on purpose: a missed deadline is the one thing you
+    # most want to notice, and the bottom of the output is what stays on
+    # screen after a long run.
+    if overdue:
+        print(f"Overdue — scheduled past due date ({len(overdue)}):")
+        print(
+            "  (couldn't fit in time — reschedule, change the due date, "
+            "or make room)"
+        )
+        for t, start, end, action, _ in overdue:
+            s = start.astimezone(tz).strftime(fmt)
+            e = end.astimezone(tz).strftime("%H:%M")
+            due_s = (
+                t.due.astimezone(tz).strftime("%a %Y-%m-%d %H:%M")
+                if t.due else "(no due)"
+            )
+            print(
+                f"  ! [{action:<9}] {s}-{e}  u={t.urgency:5.2f}  {_est(t)}  "
+                f"{t.ref} {t.description}  (due {due_s}){_override_flag(t)}"
+            )
 
 
 # ---------------------------------------------------------------------------
