@@ -75,6 +75,21 @@ def _effective_due(due: datetime, tz, settings: Settings) -> datetime:
     return due
 
 
+def _keeper_rank(ev: CalEvent, now: datetime) -> tuple[int, float]:
+    """Sort key for picking a task's keeper event (lower is better).
+
+    Prefer an event happening *right now* (so an in-progress task is never
+    moved or duplicated), then the earliest upcoming event, then the most
+    recently finished one (kept only as a record).
+    """
+    start = ev.start.timestamp()
+    if ev.start <= now < ev.end:
+        return (0, start)  # in progress
+    if ev.start > now:
+        return (1, start)  # upcoming: earliest first
+    return (2, -start)     # finished: most recent first
+
+
 # ---------------------------------------------------------------------------
 # Main reconcile
 # ---------------------------------------------------------------------------
@@ -133,25 +148,15 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
         time_max=list_horizon,
     )
 
-    # Map task -> chosen "keeper" event. Prefer the earliest event with
-    # start > now; fall back to a past event only when no future one
-    # exists for that task.
+    # Map task -> chosen "keeper" event. An in-progress event wins (never
+    # move/duplicate a task you're doing now), then the earliest upcoming
+    # event, then the most recent past one (see `_keeper_rank`).
     keepers: dict[str, CalEvent] = {}
     for ev in existing:
         if not ev.task_uuid:
             continue
         cur = keepers.get(ev.task_uuid)
-        if cur is None:
-            keepers[ev.task_uuid] = ev
-            continue
-        cur_future = cur.start > now
-        ev_future = ev.start > now
-        if ev_future and not cur_future:
-            keepers[ev.task_uuid] = ev
-        elif ev_future and cur_future and ev.start < cur.start:
-            keepers[ev.task_uuid] = ev
-        elif not ev_future and not cur_future and ev.start > cur.start:
-            # Among past events, prefer the most recent for stability.
+        if cur is None or _keeper_rank(ev, now) < _keeper_rank(cur, now):
             keepers[ev.task_uuid] = ev
 
     # Progress is only useful for the slow, network-bound real run on a TTY.
@@ -231,6 +236,16 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
             _drop_existing_if_future(t.uuid, "no due date")
             continue
 
+        existing_ev = keepers.get(t.uuid)
+        # If this task's event is happening right now, leave it exactly
+        # where it is: moving it would yank a block you're in the middle
+        # of, and creating a fresh event would leave two copies of the same
+        # task. Reserve its time so nothing else lands on it, and report it.
+        if existing_ev is not None and existing_ev.start <= now < existing_ev.end:
+            placed.append((t, existing_ev.start, existing_ev.end, "ongoing", False))
+            bisect.insort(busy, (existing_ev.start, existing_ev.end))
+            continue
+
         # Per-task effective settings (global + any `gcal` UDA override).
         ts = task_settings[t.uuid]
 
@@ -281,12 +296,11 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
         end_utc = end.astimezone(timezone.utc)
         summary = t.description
         description = _event_description(t, tz)
-        existing_ev = keepers.get(t.uuid)
 
         if existing_ev is None or existing_ev.start <= now:
-            # No keeper, or the keeper is in the past (history): create
-            # a fresh event at the new time. We don't move past events;
-            # they stay as a record.
+            # No keeper, or the keeper is a finished event (an in-progress
+            # one was handled above): create a fresh event at the new time.
+            # We don't move past events; they stay as a record.
             action = "create"
             if not dry_run:
                 gcal.create_event(
