@@ -189,8 +189,10 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
             if ev.start > now:
                 _delete(ev, removed_orphans)
             continue
-        # Future duplicates beyond the keeper -> delete.
-        if ev.id != keepers[ev.task_uuid].id and ev.start > now:
+        # Duplicates beyond the keeper that haven't finished yet -> delete.
+        # This includes ones overlapping now: only the keeper is protected
+        # from removal mid-event, so spurious in-progress copies still go.
+        if ev.id != keepers[ev.task_uuid].id and ev.end > now:
             _delete(ev, removed_duplicates, tag="(duplicate) ")
     cleanup_prog.close()
     active_progress = None
