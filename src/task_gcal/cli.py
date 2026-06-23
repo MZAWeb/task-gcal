@@ -238,71 +238,89 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
             _drop_existing_if_future(t.uuid, "no due date")
             continue
 
-        existing_ev = keepers.get(t.uuid)
-        # If this task's event is happening right now, leave it exactly
-        # where it is: moving it would yank a block you're in the middle
-        # of, and creating a fresh event would leave two copies of the same
-        # task. Reserve its time so nothing else lands on it, and report it.
-        if existing_ev is not None and existing_ev.start <= now < existing_ev.end:
-            placed.append((t, existing_ev.start, existing_ev.end, "ongoing", False))
-            bisect.insort(busy, (existing_ev.start, existing_ev.end))
-            continue
-
         # Per-task effective settings (global + any `gcal` UDA override).
         ts = task_settings[t.uuid]
-
-        # Adjust a midnight due date to end of that working day.
-        due = _effective_due(t.due, tz, ts)
-
-        # Honor `scheduled`/`wait`: never place the task before that date.
-        # The floor is inclusive, so a slot may start on the date itself.
-        earliest = now
-        floor = t.earliest_start
-        if floor is not None and floor > earliest:
-            earliest = floor
-
-        # Overdue policy: if the task is past due, we still schedule it
-        # ASAP. The effective deadline is pushed out so the slot search
-        # has room. The task remains "overdue" in the user's eyes; we
-        # flag it prominently in the report.
-        #
-        # Judge overdue-ness from the *raw* due date, not the end-of-day
-        # adjusted one: a date-only `due:today` is midnight today, which
-        # has already passed (Taskwarrior sets +OVERDUE for it too). Using
-        # the bumped end-of-day value here would mask that and drop the
-        # task ("could not fit before due date") instead of letting it
-        # spill past today. The earliest-slot search still prefers today
-        # when a slot is free; the horizon only matters once today fills.
-        was_overdue = t.due <= now
-        effective_deadline = (
-            now + timedelta(days=ts.overdue_horizon_days)
-            if was_overdue
-            else due
+        existing_ev = keepers.get(t.uuid)
+        ongoing = (
+            existing_ev is not None
+            and existing_ev.start <= now < existing_ev.end
         )
 
-        slot = find_earliest_slot(
-            duration_minutes=t.estimate_minutes,
-            earliest_start=earliest,
-            deadline=effective_deadline,
-            busy=busy,
-            tz=tz,
-            settings=ts,
-        )
-        if slot is None:
-            unschedulable.append(t)
-            _drop_existing_if_future(t.uuid, "no slot fits")
-            continue
+        if ongoing:
+            # The event is in progress: pin its start so we never yank a
+            # block you're in the middle of, but let the end follow the
+            # current estimate (e.g. when you extend it) and refresh
+            # metadata in place. We never move the start or duplicate it.
+            start_utc = existing_ev.start
+            end_utc = start_utc + timedelta(minutes=t.estimate_minutes)
+            if end_utc <= now:
+                # A shortened estimate would end the block in the past;
+                # leave the end where it is rather than rewind it.
+                end_utc = existing_ev.end
+            start = start_utc.astimezone(tz)
+            end = end_utc.astimezone(tz)
+            past_due = False
+        else:
+            # Adjust a midnight due date to end of that working day.
+            due = _effective_due(t.due, tz, ts)
 
-        start, end = slot
-        start_utc = start.astimezone(timezone.utc)
-        end_utc = end.astimezone(timezone.utc)
+            # Honor `scheduled`/`wait`: never place the task before that
+            # date. The floor is inclusive, so a slot may start on the date.
+            earliest = now
+            floor = t.earliest_start
+            if floor is not None and floor > earliest:
+                earliest = floor
+
+            # Overdue policy: if the task is past due, we still schedule it
+            # ASAP. The effective deadline is pushed out so the slot search
+            # has room. The task remains "overdue" in the user's eyes; we
+            # flag it prominently in the report.
+            #
+            # Judge overdue-ness from the *raw* due date, not the end-of-day
+            # adjusted one: a date-only `due:today` is midnight today, which
+            # has already passed (Taskwarrior sets +OVERDUE for it too).
+            # Using the bumped end-of-day value here would mask that and
+            # drop the task ("could not fit before due date") instead of
+            # letting it spill past today. The earliest-slot search still
+            # prefers today when a slot is free; the horizon only matters
+            # once today fills.
+            was_overdue = t.due <= now
+            effective_deadline = (
+                now + timedelta(days=ts.overdue_horizon_days)
+                if was_overdue
+                else due
+            )
+
+            slot = find_earliest_slot(
+                duration_minutes=t.estimate_minutes,
+                earliest_start=earliest,
+                deadline=effective_deadline,
+                busy=busy,
+                tz=tz,
+                settings=ts,
+            )
+            if slot is None:
+                unschedulable.append(t)
+                _drop_existing_if_future(t.uuid, "no slot fits")
+                continue
+
+            start, end = slot
+            start_utc = start.astimezone(timezone.utc)
+            end_utc = end.astimezone(timezone.utc)
+            # "Past due" for the report means the chosen slot actually
+            # starts after the (end-of-day-adjusted) due date — i.e. the
+            # task could not be done in time and spilled. A `due:today`
+            # task scheduled later today is overdue but not "past due", so
+            # it stays in the normal list and doesn't trip the warning.
+            past_due = start_utc > due
+
         summary = t.description
         description = _event_description(t, tz)
 
-        if existing_ev is None or existing_ev.start <= now:
-            # No keeper, or the keeper is a finished event (an in-progress
-            # one was handled above): create a fresh event at the new time.
-            # We don't move past events; they stay as a record.
+        if existing_ev is None or existing_ev.end <= now:
+            # No keeper, or the keeper has already finished: create a fresh
+            # event. In-progress and upcoming keepers are patched in place
+            # below; finished ones stay put as a record.
             action = "create"
             if not dry_run:
                 gcal.create_event(
@@ -379,12 +397,6 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
             else:
                 action = "unchanged"
 
-        # "Past due" for the report means the chosen slot actually starts
-        # after the (end-of-day-adjusted) due date — i.e. the task could
-        # not be done in time and spilled. A `due:today` task scheduled
-        # later today is overdue but not "past due", so it stays in the
-        # normal list and doesn't trip the warning.
-        past_due = start_utc > due
         placed.append((t, start, end, action, past_due))
         bisect.insort(busy, (start_utc, end_utc))
 
