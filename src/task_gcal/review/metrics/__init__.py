@@ -15,35 +15,64 @@ from __future__ import annotations
 from typing import Callable, Iterable
 
 from ..model import Section
-from . import capacity, flow, followthrough, throughput
+from . import (
+    attempts,
+    boundaries,
+    capacity,
+    deadlines,
+    flow,
+    followthrough,
+    friction,
+    scope,
+    stagnation_section,
+    throughput,
+)
 
 SectionBuilder = Callable[[object], Section]
 
-_BUILDERS: tuple[SectionBuilder, ...] = (
-    capacity.build,
-    throughput.build,
-    flow.build_flow,
-    flow.build_lead_time,
-    followthrough.build,
+# Ordered as the report reads: capacity, then output, then flow, then whether
+# the plan survived, then the behavioural detail, then what needs deciding.
+_BUILDERS: tuple[tuple[str, SectionBuilder], ...] = (
+    (capacity.KEY, capacity.build),
+    (throughput.KEY, throughput.build),
+    (flow.KEY_FLOW, flow.build_flow),
+    (flow.KEY_LEAD_TIME, flow.build_lead_time),
+    (followthrough.KEY, followthrough.build),
+    (deadlines.KEY, deadlines.build),
+    (friction.KEY, friction.build),
+    (attempts.KEY, attempts.build),
+    (scope.KEY, scope.build),
+    (boundaries.KEY, boundaries.build),
+    (stagnation_section.KEY, stagnation_section.build),
+)
+
+# The default weekly review has to fit one terminal screen, so only these
+# print without being asked for. The rest are `--section` material: detailed
+# metrics are requested, not always shown.
+SUMMARY_KEYS: tuple[str, ...] = (
+    capacity.KEY,
+    throughput.KEY,
+    flow.KEY_FLOW,
+    followthrough.KEY,
+    deadlines.KEY,
+    friction.KEY,
+    boundaries.KEY,
+    stagnation_section.KEY,
 )
 
 
 def build_sections(facts) -> tuple[Section, ...]:
-    return tuple(build(facts) for build in _BUILDERS)
+    return tuple(build(facts) for _key, build in _BUILDERS)
 
 
 def section_keys() -> tuple[str, ...]:
     """Every `--section` name, for argparse choices and for `--help`."""
-    return tuple(
-        key
-        for key in (
-            capacity.KEY,
-            throughput.KEY,
-            flow.KEY_FLOW,
-            flow.KEY_LEAD_TIME,
-            followthrough.KEY,
-        )
-    )
+    return tuple(key for key, _build in _BUILDERS)
+
+
+def summary_sections(sections: Iterable[Section]) -> tuple[Section, ...]:
+    """The one-screen default: the headline families, in report order."""
+    return tuple(s for s in sections if s.key in SUMMARY_KEYS)
 
 
 def selected(sections: Iterable[Section], keys: Iterable[str]) -> tuple[Section, ...]:

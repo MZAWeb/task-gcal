@@ -8,7 +8,6 @@ case, and the normal one.
 
 from __future__ import annotations
 
-from datetime import timedelta
 
 from task_gcal.review.metrics import capacity, flow, followthrough, throughput
 

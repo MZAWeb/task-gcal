@@ -37,6 +37,12 @@ from .periods import Period
 # that predate the window being reported on.
 BLOCK_LOOKBACK_DAYS = 180
 
+# How far before the period to read the journal. A change is only observable
+# as a *difference* between two observations, so the first day of the period
+# needs a predecessor to be compared against — and the promise ledger wants
+# the earliest due date it can find, not the earliest one inside the window.
+JOURNAL_LOOKBACK_DAYS = 400
+
 
 @dataclass(frozen=True)
 class Facts:
@@ -164,7 +170,7 @@ def collect(
         calendar_ok = False
 
     journal = load(
-        since=period.start,
+        since=period.start - timedelta(days=JOURNAL_LOOKBACK_DAYS),
         until=period.end,
         modes=(MODE_SCHEDULE, MODE_SNAPSHOT, MODE_BACKFILL),
     )

@@ -34,6 +34,9 @@ from .schedule import reconcile
 # parser doesn't drag the importer in. Kept honest by a test.
 DEFAULT_BACKFILL_DAYS = 90
 
+# Mirrors `review.episodes.DEFAULT_SINCE_DAYS`, for the same reason.
+DEFAULT_CHECKIN_DAYS = 14
+
 # Review section names, for `--section`. Also duplicated to keep the review
 # package out of a bare run, and also checked by a test.
 _SECTION_CHOICES = (
@@ -42,6 +45,12 @@ _SECTION_CHOICES = (
     "flow",
     "lead_time",
     "follow_through",
+    "deadlines",
+    "friction",
+    "attempts",
+    "scope",
+    "boundaries",
+    "stagnation",
 )
 
 _FORMAT_CHOICES = ("terminal", "markdown", "json", "html")
@@ -298,6 +307,19 @@ def _build_parser() -> argparse.ArgumentParser:
              f"One of: {', '.join(_SECTION_CHOICES)}.",
     )
     review_p.add_argument(
+        "--all", dest="all_sections", action="store_true",
+        help="Summarize every section, not just the headline ones.",
+    )
+    review_p.add_argument(
+        "--triage", action="store_true",
+        help="List stagnant tasks with the exact `task` commands that would "
+             "resolve each. Prints commands; changes nothing.",
+    )
+    review_p.add_argument(
+        "--reflect", action="store_true",
+        help="Ask about unexplained missed commitments before reporting.",
+    )
+    review_p.add_argument(
         "--format", dest="fmt", default="terminal", choices=_FORMAT_CHOICES,
         help="Output format (default: terminal).",
     )
@@ -310,6 +332,31 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Open the rendered report in a browser (implies a file).",
     )
     review_p.set_defaults(func=_run_review, kind="week")
+
+    checkin_p = sub.add_parser(
+        "checkin",
+        parents=[overrides],
+        help="Optional retrospective: what happened to blocks that passed?",
+        description=(
+            "Walk scheduled blocks that have ended and haven't been explained "
+            "yet, and record what happened and why. Optional and "
+            "retrospective; writes only its own answers, never Taskwarrior."
+        ),
+    )
+    checkin_p.add_argument(
+        "--since", type=_date_arg, metavar="YYYY-MM-DD",
+        help="Reach further back when catching up (default: the last "
+             f"{DEFAULT_CHECKIN_DAYS} days).",
+    )
+    checkin_p.set_defaults(func=_run_checkin)
+
+    doctor_p = sub.add_parser(
+        "doctor",
+        parents=[overrides],
+        help="Check config, auth, Taskwarrior and the journal. Read-only.",
+        description="Check that everything this tool depends on is working.",
+    )
+    doctor_p.set_defaults(func=_run_doctor)
 
     return parser
 
@@ -342,15 +389,37 @@ def _run_review(args, settings) -> int:
             kind=args.kind,
             offset=args.last,
             sections=tuple(args.sections or ()),
+            all_sections=args.all_sections,
             fmt=args.fmt,
             open_in_browser=args.open_in_browser,
             output=Path(args.output) if args.output else None,
+            triage=args.triage,
+            reflect=args.reflect,
         ),
     )
 
 
+def _run_checkin(args, settings) -> int:
+    from .checkin import checkin
+
+    since = None
+    if args.since is not None:
+        tz = settings.resolve_timezone()
+        since = args.since.replace(tzinfo=tz).astimezone(timezone.utc)
+    code, _summary = checkin(settings, since=since)
+    return code
+
+
+def _run_doctor(_args, settings) -> int:
+    from .doctor import run as run_doctor
+
+    return run_doctor(settings)
+
+
 # Recognized subcommands, for `_normalize_argv`.
-_SUBCOMMANDS = ("schedule", "snapshot", "backfill", "review")
+_SUBCOMMANDS = (
+    "schedule", "snapshot", "backfill", "review", "checkin", "doctor",
+)
 
 # Top-level flags that must not be swallowed by the implicit `schedule`.
 _TOP_LEVEL_FLAGS = ("-h", "--help", "--version")

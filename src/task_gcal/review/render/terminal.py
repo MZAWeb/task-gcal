@@ -18,13 +18,20 @@ _LABEL_WIDTH = 15
 def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> str:
     lines: list[str] = [review.period.label, ""]
 
-    for section in sections:
+    # A section with nothing to measure costs a line and says nothing, and the
+    # one-screen budget is tight. They're named together below instead — but
+    # only in the summary: asking for a section explicitly should show it even
+    # if the answer is "there's no data".
+    shown = (
+        sections if detailed else tuple(s for s in sections if s.measured)
+    )
+    for section in shown:
         lines.append(_summary_line(section))
         if detailed:
             lines.extend(_detail_block(section))
 
     if not detailed:
-        unmeasured = review.incomplete_sections
+        unmeasured = tuple(s.label for s in sections if not s.measured)
         if unmeasured:
             lines.append("")
             lines.append(f"Not measured   {', '.join(unmeasured)}")

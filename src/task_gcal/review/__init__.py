@@ -34,10 +34,17 @@ class ReviewRequest:
 
     kind: str = KIND_WEEK
     offset: int = 0  # periods back from the current one
-    sections: tuple[str, ...] = ()  # empty means "the summary of all of them"
+    sections: tuple[str, ...] = ()  # empty means the one-screen summary
+    all_sections: bool = False  # every section, summary only
     fmt: str = FORMAT_TERMINAL
     open_in_browser: bool = False
     output: Optional[Path] = None
+    # Print the stagnation queue as pasteable commands instead of a report.
+    triage: bool = False
+    # Run the retrospective prompts before rendering, so the weekly review can
+    # be the moment missing context gets captured. Off by default, which keeps
+    # normal output scriptable.
+    reflect: bool = False
 
 
 def build(facts: Facts) -> Review:
@@ -62,10 +69,27 @@ def run(
     tz = settings.resolve_timezone()
     period = resolve(request.kind, tz, now=now, offset=request.offset)
 
+    if request.reflect:
+        # Before collecting, so answers given now appear in the report the
+        # user is about to read.
+        from ..checkin import checkin
+
+        checkin(settings, since=period.start, now=now, gcal=gcal)
+        print()
+
     facts = collect(settings, period, now=now, gcal=gcal)
+
+    if request.triage:
+        from .triage import render as render_triage
+
+        print(render_triage(facts), end="")
+        return 0
+
     review = build(facts)
 
-    chosen = review.sections
+    # The default is the one-screen summary. Detailed sections are requested
+    # rather than always printed — the whole point of not being a dashboard.
+    chosen = metrics.summary_sections(review.sections)
     if request.sections:
         chosen = metrics.selected(review.sections, request.sections)
         if not chosen:
@@ -75,6 +99,8 @@ def run(
                 file=sys.stderr,
             )
             return 2
+    elif request.all_sections:
+        chosen = review.sections
 
     text = render(
         review,

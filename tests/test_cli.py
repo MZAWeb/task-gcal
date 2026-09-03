@@ -221,6 +221,38 @@ def test_the_default_backfill_window_matches_the_importer():
     assert cli_mod.DEFAULT_BACKFILL_DAYS == DEFAULT_BACKFILL_DAYS
 
 
+def test_the_default_checkin_window_matches_the_episode_finder():
+    from task_gcal.review.episodes import DEFAULT_SINCE_DAYS
+
+    assert cli_mod.DEFAULT_CHECKIN_DAYS == DEFAULT_SINCE_DAYS
+
+
+def test_triage_reflect_and_all_are_review_flags():
+    args = review_args("--triage", "--reflect", "--all")
+    assert (args.triage, args.reflect, args.all_sections) == (True, True, True)
+
+
+def test_review_flags_default_to_off():
+    args = review_args()
+    assert (args.triage, args.reflect, args.all_sections) == (False, False, False)
+
+
+# ---------------------------------------------------------------------------
+# checkin and doctor
+# ---------------------------------------------------------------------------
+
+def test_checkin_accepts_a_since_date():
+    args = cli_mod._build_parser().parse_args(
+        ["checkin", "--since", "2026-08-01"]
+    )
+    assert args.since.month == 8
+
+
+def test_doctor_takes_no_arguments_of_its_own():
+    args = cli_mod._build_parser().parse_args(["doctor"])
+    assert callable(args.func)
+
+
 # ---------------------------------------------------------------------------
 # The fast path stays fast
 # ---------------------------------------------------------------------------

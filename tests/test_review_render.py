@@ -48,10 +48,22 @@ def test_every_format_names_the_period(populated, fmt):
 
 
 @pytest.mark.parametrize("fmt", FORMATS)
-def test_every_format_carries_every_section(populated, fmt):
+def test_every_format_carries_every_section_it_was_given(populated, fmt):
+    from task_gcal.review.metrics import summary_sections
+
     out = populated.render(fmt)
-    for section in populated.review().sections:
-        assert section.label in out, section.key
+    for section in summary_sections(populated.review().sections):
+        if section.measured or fmt != "terminal":
+            assert section.label in out, section.key
+
+
+@pytest.mark.parametrize("fmt", FORMATS)
+def test_the_default_is_the_headline_sections_not_all_of_them(populated, fmt):
+    # Detailed metrics are requested by section rather than always printed —
+    # otherwise the report is the dashboard we set out not to build.
+    out = populated.render(fmt)
+    assert "Lead time" not in out
+    assert "Capacity" in out
 
 
 @pytest.mark.parametrize("fmt", FORMATS)
@@ -89,9 +101,29 @@ def test_the_default_terminal_report_fits_one_screen(populated):
 
 
 def test_the_terminal_summary_is_one_line_per_section(populated):
+    from task_gcal.review.metrics import summary_sections
+
     out = populated.render("terminal")
     body = out.split("\n\n")[1].splitlines()
-    assert len(body) == len(populated.review().sections)
+    shown = [
+        s for s in summary_sections(populated.review().sections) if s.measured
+    ]
+    assert len(body) == len(shown)
+
+
+def test_an_unmeasurable_section_is_named_rather_than_given_a_line(populated):
+    # It costs a line and says nothing; the budget is one screen.
+    out = populated.render("terminal")
+    assert "Deadlines      no deadline history" not in out
+    assert "Not measured" in out
+    assert "Deadlines" in out
+
+
+def test_asking_for_an_unmeasurable_section_still_shows_it(populated):
+    # "There's no data for this" is the answer to the question that was asked.
+    out = populated.render("terminal", sections=("deadlines",))
+    assert "Deadlines" in out
+    assert "not measured" in out
 
 
 def test_terminal_detail_keeps_its_column_alignment(populated):

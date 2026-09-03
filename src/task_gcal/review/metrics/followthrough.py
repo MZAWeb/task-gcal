@@ -64,7 +64,7 @@ def build(facts) -> Section:
             key=KEY,
             label="Follow-through",
             summary=(
-                f"no blocks ended in this period"
+                "no blocks ended in this period"
                 + (f" · {len(off_plan)} completed off-plan" if off_plan else "")
             ),
             measured=False,

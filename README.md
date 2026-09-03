@@ -91,6 +91,8 @@ task-gcal review --week
 task-gcal review --month
 task-gcal review --week --last 1          # the week before this one
 task-gcal review --week --section capacity
+task-gcal review --week --reflect         # explain the misses first
+task-gcal review --triage                 # what needs a decision
 task-gcal review --month --format markdown -o notes/2026-09.md
 task-gcal review --week --format json
 task-gcal review --month --format html --open
@@ -105,15 +107,18 @@ Week 37
 Capacity       42h available · 10h meetings · 4h30 planned
 Completed      5 tasks · 5h planned
 Backlog        18 created · 14 completed · 3 deleted · net +1
-Lead time      median 6d · 90th 21d · longest 33d
 Follow-through 12 of 18 blocks honoured · 3 completed off-plan
+Deadlines      3 observed push(es) across 2 task(s) · 11 days
+Friction       capacity 4 · avoided 3 · estimate 1 · 2 unclassified
+Boundaries     2 evening(s) (1h35) · 1 weekend day(s) (1h30)
+Stagnation     3 of 23 open task(s) need a decision
 
 Coverage
   4 of 7 day(s) observed. Anything the journal didn't see is missing, not zero.
   Measured on calendar primary.
 
-Look at: Blocks at 16:00 kept passing with the task still open — stop
-scheduling work there.
+Look at: "Prepare PIR" was deferred for the 3rd time — decide whether it is
+real.
 ```
 
 Four rules shape everything in it:
@@ -132,8 +137,110 @@ Four rules shape everything in it:
    concrete change, it's a dashboard.
 
 `--section NAME` prints one section in full instead of the summary
-(repeatable). Sections: `capacity`, `throughput`, `flow`, `lead_time`,
-`follow_through`.
+(repeatable), and `--all` summarizes every section rather than the
+headline ones. The detailed metrics are requested rather than always
+printed, which is the difference between a review and a dashboard:
+
+| Section | Answers |
+| --- | --- |
+| `capacity` | Where the week went before you started |
+| `throughput` | How much moved, by project |
+| `flow` | Created vs closed — is intake the constraint? |
+| `lead_time` | How long something waits before you do it |
+| `follow_through` | Did the plan survive contact? Which hour fails most? |
+| `deadlines` | The promise ledger: pushes, days moved, original vs renegotiated |
+| `friction` | The mix of confirmed reasons (needs `checkin`) |
+| `attempts` | Blocks-to-completion — are the estimates fiction? |
+| `scope` | Estimates revised up, titles rewritten, deliberate deferral |
+| `boundaries` | Evenings and weekends actually claimed |
+| `stagnation` | What needs a decision |
+
+### `task-gcal review --triage`
+
+Lists the stagnant tasks with the exact commands that would resolve each,
+and **runs none of them**:
+
+```text
+Stagnant (3):
+  #32 Follow up on post-offsite tasks — 5 blocks passed
+      task 32 modify estimate:20        # shrink it to a first step you'd actually start
+      task 32 delete                    # be honest
+
+Nothing above has been run. Paste the ones you agree with.
+```
+
+Taskwarrior stays the source of truth: this tool never writes to it.
+That's also what makes triage safe to run casually — there's no
+confirmation to misclick and no `--dry-run` to forget.
+
+A task earns a place on that list by accumulating evidence — blocks that
+passed, deadlines that kept moving, an estimate that doubled — not by
+being old. Plenty of old tasks are fine where they are.
+
+### `task-gcal checkin`
+
+The **optional** retrospective. It walks scheduled blocks that have ended
+and haven't been explained yet, and asks two questions:
+
+```text
+Tue 08 Sep 09:00  Write proposal (estimated 60m)
+  Tue 08 Sep 10:00  block ended with the task still open (60m planned)
+  Wed 09 Sep 18:00  due date moved later, after the old date had passed (+2d)
+  Suggests: likely unfinished, then deferred
+  What happened? [d]one / [p]artial / [n]ot started / [x]cancelled / [u]nknown: p
+  Primary reason:
+    [e] estimate or scope was wrong
+    [b] blocked by a dependency
+    [w] week changed or capacity disappeared
+    [r] consciously reprioritized
+    [a] avoided it
+    [u] unknown or other
+  Reason: a
+  Actual minutes (optional): 20
+```
+
+Run it daily, every few days, or not at all — reflections stay open until
+answered, so `task-gcal review --week --reflect` works just as well as a
+morning routine. Nothing here assumes a daily cadence, and reviews are
+still measured without it.
+
+What it deliberately won't do:
+
+- **Never records an outcome without confirmation.** It follows an
+  evidence ladder: *fact* — a block ended with the task still open;
+  *fact* — a deadline moved after its old date had passed; *suggestion* —
+  likely unfinished or deferred; *confirmation* — only you can say. A
+  due-date push on its own means a deadline moved, not that no work
+  happened.
+- **Never guesses a reason.** `unknown` is offered, kept, and reported as
+  missing classification rather than folded into a plausible bucket.
+- **Never turns unknown time into the estimate.** Actual minutes are
+  optional, and only compared against estimates for work you finished —
+  20 minutes spent on something unfinished says nothing about whether the
+  estimate was right.
+- **Asks about a miss episode, not a block.** Four passed blocks and two
+  deadline pushes on the same task are one prompt, not six.
+- **Never scores an answer** — least of all `avoided`. A metric that
+  costs you something for admitting avoidance trains you to lie to it.
+
+Everything is skippable, answers can be corrected by answering again, and
+it writes only its own file — never Taskwarrior.
+
+### `task-gcal doctor`
+
+Read-only sanity check on everything the tool depends on, where each
+failure names its fix rather than just the symptom:
+
+```text
+[ ok ] config       no config.toml; using built-in defaults
+[ ok ] timezone     Europe/Amsterdam (from system)
+[ ok ] taskwarrior  `task export next` returned 16 task(s), 16 with a `estimate`
+[ ok ] google auth  token present, mode 600
+[warn] journal      no records under ~/.local/share/task-gcal
+                    → run `task-gcal backfill` to seed history, and
+                      `task-gcal snapshot` on a timer to keep it
+[ ok ] check-ins    none recorded (optional — reviews work without them)
+```
 
 `--format` renders the same internal model four ways: `terminal`
 (default), `markdown` (durable weekly notes), `json` (the escape hatch —

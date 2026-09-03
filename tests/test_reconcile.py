@@ -29,13 +29,11 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-import pytest
 
 from task_gcal import placement as placement_mod
-from task_gcal import schedule as schedule_mod
 from task_gcal.config import Settings
 
-from conftest import FRI_5PM, MIDNIGHT, NOW, WED_5PM, at, managed_event, task_row
+from conftest import FRI_5PM, NOW, WED_5PM, at, managed_event, task_row
 
 
 # ---------------------------------------------------------------------------

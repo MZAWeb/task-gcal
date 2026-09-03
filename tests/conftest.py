@@ -518,6 +518,18 @@ class ReviewHarness:
         self.settings = replace(self.settings, **kwargs)
         return self
 
+    def whole_week(self) -> "ReviewHarness":
+        """Report on NOW's week as a *finished* one.
+
+        The default fixture reviews a week in progress, clamped to Friday
+        afternoon — the awkward case, and worth being the default. But it
+        means Saturday and Friday evening fall outside the period, so
+        anything about weekends or out-of-hours time needs the full week.
+        """
+        self.now = NOW + timedelta(days=7)
+        self.offset = 1
+        return self
+
     def period(self):
         from task_gcal.review.periods import resolve
 
@@ -556,7 +568,7 @@ class ReviewHarness:
         chosen = (
             metrics_mod.selected(review.sections, sections)
             if sections
-            else review.sections
+            else metrics_mod.summary_sections(review.sections)
         )
         return render(
             review, fmt=fmt, sections=chosen, detailed=detailed or bool(sections)

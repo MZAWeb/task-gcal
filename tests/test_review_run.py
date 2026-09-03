@@ -250,6 +250,56 @@ def test_a_settings_change_inside_the_period_is_annotated(
     assert any("definitions changed" in c for c in payload["caveats"])
 
 
+def test_triage_prints_commands_instead_of_a_report(runner):
+    runner.with_tasks(a_task(uuid="a", id=40)).with_calendar(
+        blocks=[a_block("a", at(0, 9), 60), a_block("a", at(1, 9), 60)]
+    )
+    runner.run(ReviewRequest(triage=True))
+
+    assert "task 40 delete" in runner.out
+    assert "Capacity" not in runner.out
+
+
+def test_all_shows_every_section(runner):
+    runner.run(ReviewRequest(all_sections=True, fmt="json"))
+    keys = {s["key"] for s in json.loads(runner.out)["sections"]}
+    from task_gcal.review import section_keys
+
+    assert keys == set(section_keys())
+
+
+def test_the_default_is_the_headline_sections_only(runner):
+    runner.run(ReviewRequest(fmt="json"))
+    keys = {s["key"] for s in json.loads(runner.out)["sections"]}
+    assert "lead_time" not in keys
+    assert "capacity" in keys
+
+
+def test_reflect_asks_before_reporting(runner, monkeypatch):
+    order: list[str] = []
+    monkeypatch.setattr(
+        "task_gcal.checkin.checkin",
+        lambda *args, **kwargs: (order.append("checkin"), (0, None))[1],
+    )
+    runner.run(ReviewRequest(reflect=True))
+    order.append("report")
+
+    # Answers given now have to land in the report the user is about to read.
+    assert order == ["checkin", "report"]
+    assert "Week" in runner.out
+
+
+def test_reflect_is_off_by_default(runner, monkeypatch):
+    called: list[str] = []
+    monkeypatch.setattr(
+        "task_gcal.checkin.checkin",
+        lambda *args, **kwargs: (called.append("x"), (0, None))[1],
+    )
+    runner.run()
+    # Normal output stays scriptable: nothing prompts unless asked.
+    assert called == []
+
+
 def test_backfilled_days_are_flagged_as_having_no_block_history(
     runner, isolated_journal
 ):
