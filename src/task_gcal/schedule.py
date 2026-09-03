@@ -290,11 +290,6 @@ def reconcile(
         else:
             schedulable.append(t)
 
-    sched_prog = Progress(
-        total=len(schedulable),
-        label="Scheduling tasks…",
-        enabled=show_progress,
-    )
     decisions, unschedulable = plan_placements(
         schedulable,
         task_settings=task_settings,
@@ -303,23 +298,32 @@ def reconcile(
         now=now,
         tz=tz,
         settings=settings,
-        progress=sched_prog,
     )
     for t in unschedulable:
         _drop_existing_if_future(t.uuid, "no slot fits")
 
     # ---------------- Step 4: write the placements ---------------------
-    placed = [
-        _apply_decision(
-            d,
-            gcal=gcal,
-            tz=tz,
-            ts=task_settings[d.task.uuid],
-            now=now,
-            dry_run=dry_run,
+    # The bar belongs here, not around the planning: planning is pure and
+    # instant, and a bar that fills before the first API call then sits at
+    # N/N for the whole network phase is worse than none.
+    sched_prog = Progress(
+        total=len(decisions),
+        label="Scheduling tasks…",
+        enabled=show_progress,
+    )
+    placed = []
+    for d in decisions:
+        sched_prog.advance(d.task.description[:48])
+        placed.append(
+            _apply_decision(
+                d,
+                gcal=gcal,
+                tz=tz,
+                ts=task_settings[d.task.uuid],
+                now=now,
+                dry_run=dry_run,
+            )
         )
-        for d in decisions
-    ]
     sched_prog.close()
 
     # ---------------- Step 5: execute the removal plan -------------------

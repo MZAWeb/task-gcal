@@ -15,7 +15,6 @@ from typing import Optional
 
 from .config import Settings, apply_overrides, parse_task_overrides
 from .gcal import CalEvent
-from .progress import Progress
 from .scheduler import find_earliest_slot
 from .stability import invalid_reason, is_settled
 from .taskw import TaskInfo
@@ -191,7 +190,6 @@ def plan_placements(
     now: datetime,
     tz: tzinfo,
     settings: Settings,
-    progress: Optional[Progress] = None,
 ) -> tuple[list[Decision], list[TaskInfo]]:
     """Decide where every schedulable task's block goes.
 
@@ -251,8 +249,6 @@ def plan_placements(
     # ---- Pass 2: place everything else, most urgent first ----------------
     reserved = {d.task.uuid for d in decisions}
     for t in sorted(tasks, key=lambda t: t.urgency, reverse=True):
-        if progress is not None:
-            progress.advance(t.description[:48])
         if t.uuid in reserved:
             continue
         ts = task_settings[t.uuid]
