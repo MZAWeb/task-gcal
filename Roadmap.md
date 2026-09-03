@@ -261,20 +261,31 @@ rather than double-counting them.
 
 ### 1.4 Placement passes
 
-Fitness blocks aren't "urgent tasks" — they're near-fixed commitments that
-tasks should route *around*. So placement becomes ordered passes, each pass's
-output being busy time for the next:
+Fitness blocks aren't "urgent tasks" — they're commitments that tasks should
+route *around*. Some of them we place; some already exist (§2.2). So placement
+becomes ordered passes, each pass's output being busy time for the next:
 
-1. **Pass 1 — flexible commitments.** Configured fitness sessions that need a
-   time chosen. They are placed before ordinary tasks.
-2. **Pass 2 — tasks.** Current behavior, now working around pass 1.
+0. **Pass 0 — classify. No writes.** Find the commitments that *already* exist
+   for this period: ones we own, ones mirrored from a feed, and ones you put
+   there yourself. They're already protected — busy-time subtraction has always
+   done that — so the work here isn't scheduling, it's *recognition*: knowing
+   that Saturday's long run counts toward "1 long run per week".
+1. **Pass 1 — place the shortfall.** Only the flexible sessions pass 0 says are
+   still owed, spread across the remaining days.
+2. **Pass 2 — tasks.** Current behavior, now working around passes 0 and 1.
 3. **Pass 3 — fillers.** Optional reading/admin items that may use leftover
-   gaps but never displace the first two passes.
+   gaps but never displace the earlier passes.
 
-Fixed imported events are not demands at all when they already appear on a
-calendar included in the busy-time query; they are simply busy time. An import
-source needs an explicit mode: `protect` existing events, or `mirror` external
-plan items onto a task-gcal-owned calendar. This avoids duplicate workouts.
+**This splits the model in two, and §1.2 should say so.** A `Demand` is
+something we still have to place. An **`Occurrence`** is something already on a
+calendar — which we may own, mirror, or merely observe. Occurrences are inputs:
+busy time, plus evidence against a quota. Only demands get placed. Conflating
+them is how you get duplicate workouts.
+
+An import source therefore needs an explicit mode: `observe` (it's already on a
+calendar we read — do nothing but count it) or `mirror` (copy feed items onto a
+calendar we own, because we can't otherwise see them). `observe` is nearly free
+and should be the default.
 
 Ordered passes make "protect my training time" real, but they also create a
 stability problem: adding one commitment can cascade-move many task events.
@@ -420,12 +431,15 @@ becomes "point intervals.icu at Garmin, point us at intervals.icu."** One
 importer, and it also gets us race calendars, school calendars, a partner's
 shared calendar, anything.
 
-### 2.2 Configured fitness blocks — the v1 that has no dependencies
+### 2.2 Fitness: fixed sessions and flexible quotas
 
-You offered this as a fallback; I think it's actually the better *first*
-feature, because it introduces the one genuinely new scheduling concept:
+**Decided (§7.2): both.** Long runs and classes are fixed — you already own the
+time. Easy runs and strength are flexible — declare intent and let the tool
+find the slot. That mix is the realistic one, and it costs less than it sounds,
+because the fixed half needs almost no scheduling code (see pass 0 in §1.4).
 
 ```toml
+# Flexible: we choose the time.
 [[fitness]]
 name     = "Easy run"
 duration = 45
@@ -434,19 +448,48 @@ lane     = "morning"
 spacing  = "1d"         # at least a day between sessions of this block
 
 [[fitness]]
+name      = "Strength"
+duration  = 30
+per_week  = 2
+lane      = "morning"
+not_after = "Long run"  # don't stack it the morning after the long one
+
+# Fixed: you own the time; we only recognise and protect it.
+[[fitness]]
 name     = "Long run"
+fixed    = "sat 08:00"
 duration = 90
-days     = [5, 6]       # Sat/Sun only
-per_week = 1
-lane     = "personal"
 
 [[fitness]]
-name     = "Strength"
-duration = 30
-per_week = 2
-lane     = "morning"
-not_after = "Long run"  # don't stack it the morning after the long one
+name     = "Class"
+fixed    = "tue 19:00"
+duration = 60
+counts_as = "Strength"  # satisfies one Strength session for the week
 ```
+
+**The hard part is recognition, not placement.** A fixed session you scheduled
+by hand is already protected; what we need is to know it happened, so the quota
+maths and the review are right. That means matching calendar events to
+templates, and matching heuristically is worse than not matching at all — a
+false positive silently tells you you've trained when you haven't. So, in
+order of preference:
+
+1. **A dedicated fitness calendar** (`fitness_calendar_id`). Unambiguous, zero
+   config per session, and it keeps training off your work calendar. Best
+   default.
+2. **Explicit per-template patterns** (`matches = ["Long run", "🏃"]`), opt-in.
+3. **`task-gcal fitness --adopt <event>`**, which stamps an existing event with
+   our `source`/`key` so it's ours from then on.
+
+Never adopt by fuzzy title similarity, and never silently.
+
+Two knock-on rules once both kinds exist:
+
+- **`counts_as` is explicit.** A fixed class shouldn't quietly absorb a flexible
+  quota unless you say so; otherwise a busy week of classes makes the strength
+  quota vanish.
+- **Spacing constraints span both kinds.** `not_after = "Long run"` has to see
+  the fixed Saturday session, which is exactly why pass 0 runs first.
 
 New machinery this needs, none of which exists today:
 
@@ -947,10 +990,12 @@ migration must not accidentally make every pre-migration event look like one.
 1. **Garmin path.** Is routing through intervals.icu acceptable, or do you want
    the unofficial-API approach despite the fragility? Or is §2.2's configured
    blocks enough that Garmin can wait?
-2. **Are fitness blocks demands or commitments?** Should we *pick* your training
-   times inside a lane (flexible, we optimize around meetings), or do you
-   already own fixed times and want us to just protect them from tasks? This
-   changes §1.4 a lot.
+2. ~~**Are fitness blocks demands or commitments?**~~ **Answered: both.** Long
+   runs and classes are fixed; easy runs and strength are flexible quotas. This
+   split the model into `Demand` vs `Occurrence` and added pass 0 (§1.4, §2.2).
+   Follow-up worth deciding before Phase 2: **do you want a dedicated fitness
+   calendar?** It's the only unambiguous way to recognise sessions you schedule
+   by hand, and it makes §7.4 partly moot.
 3. **Will you do the daily check-in?** Honest answer changes the roadmap: yes →
    Phase 4 unlocks calibration and half of Theme C. No → we build the weaker
    calendar-inference proxy and drop the Calibration dial.
