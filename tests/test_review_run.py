@@ -209,6 +209,69 @@ def test_a_calendar_failure_degrades_rather_than_crashing(runner, monkeypatch):
     assert any("could not be read" in c for c in payload["caveats"])
 
 
+def test_missing_credentials_degrade_rather_than_aborting(runner, monkeypatch):
+    # The most common calendar failure of all: a machine that has never run
+    # `--setup`. Building the client has to be inside the guarded block, and
+    # `SystemExit` named explicitly, or the documented caveat is unreachable.
+    from task_gcal.review import facts as facts_mod
+
+    def no_credentials(_settings, **_kwargs):
+        raise SystemExit("Missing OAuth client secrets at ...")
+
+    monkeypatch.setattr(facts_mod, "GCal", no_credentials)
+    runner.calendar = None
+    code = runner.run(ReviewRequest(fmt="json"))
+    payload = json.loads(runner.out)
+
+    assert code == 0
+    assert any("could not be read" in c for c in payload["caveats"])
+
+
+def test_a_review_never_opens_a_browser_to_authorize(runner, monkeypatch):
+    # A review run from cron must degrade, not block on an OAuth flow that
+    # nobody is watching.
+    from task_gcal.review import facts as facts_mod
+
+    seen = {}
+
+    def record(_settings, **kwargs):
+        seen.update(kwargs)
+        raise RuntimeError("no auth")
+
+    monkeypatch.setattr(facts_mod, "GCal", record)
+    runner.calendar = None
+    runner.run()
+
+    assert seen == {"allow_interactive": False}
+
+
+def test_checkin_does_not_claim_nothing_to_review_without_a_calendar(
+    monkeypatch, capsys, isolated_journal
+):
+    # Blocks are where nearly all the evidence comes from.
+    from task_gcal import checkin as checkin_mod
+    from task_gcal.review import facts as facts_mod
+
+    monkeypatch.setattr(facts_mod, "load_all_tasks", lambda **_kwargs: [])
+    monkeypatch.setattr(
+        facts_mod, "GCal", lambda *_a, **_kw: (_ for _ in ()).throw(
+            RuntimeError("no calendar")
+        )
+    )
+    console = checkin_mod.Console(
+        read=lambda _prompt: "", write=print, interactive=True
+    )
+    code, summary = checkin_mod.checkin(
+        SETTINGS, since=NOW - timedelta(days=7), now=FRIDAY, console=console
+    )
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert summary.recorded == 0
+    assert "could not be read" in out
+    assert "Nothing to review" not in out
+
+
 def test_an_empty_setup_says_how_to_get_history(runner):
     runner.run()
     assert "task-gcal snapshot" in runner.out

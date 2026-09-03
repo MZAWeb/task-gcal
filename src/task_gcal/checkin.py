@@ -106,10 +106,18 @@ def checkin(
     console = console or Console()
     now = now or datetime.now(timezone.utc)
     since = since or (now - timedelta(days=DEFAULT_SINCE_DAYS))
-    episodes = open_episodes(
-        settings, since=since, now=now, gcal=gcal
-    )
+    facts = collect_window(settings, since=since, now=now, gcal=gcal)
+    episodes = open_episodes(facts, since=since, now=now)
     summary = CheckinSummary(found=len(episodes))
+
+    if not facts.calendar_ok:
+        # Blocks are where nearly all the evidence comes from, so with no
+        # calendar "nothing to review" would be a claim we can't make.
+        console.write(
+            "The calendar could not be read, so blocks that passed can't be "
+            "seen. Nothing has been recorded."
+        )
+        return 1, summary
 
     if not episodes:
         console.write(
@@ -157,23 +165,22 @@ def checkin(
     return 0, summary
 
 
-def open_episodes(
-    settings: Settings,
-    *,
-    since: datetime,
-    now: datetime,
-    gcal=None,
-) -> list[Episode]:
-    """Unresolved episodes in `[since, now)`, strongest evidence first."""
-    tz = settings.resolve_timezone()
+def collect_window(
+    settings: Settings, *, since: datetime, now: datetime, gcal=None
+):
+    """Facts over the check-in window. The only I/O on this path."""
     window = Period(
         kind="window",
         label="check-in window",
         start=since,
         end=now,
-        tz=tz,
+        tz=settings.resolve_timezone(),
     )
-    facts = collect(settings, window, now=now, gcal=gcal)
+    return collect(settings, window, now=now, gcal=gcal)
+
+
+def open_episodes(facts, *, since: datetime, now: datetime) -> list[Episode]:
+    """Unresolved episodes in `[since, now)`, strongest evidence first."""
     return find_unresolved(
         tasks=list(facts.tasks),
         blocks_by_task=facts.blocks_by_task(),

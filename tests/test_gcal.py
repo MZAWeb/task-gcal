@@ -85,7 +85,9 @@ def http_error(status: int) -> HttpError:
 @pytest.fixture
 def client(monkeypatch):
     events = FakeEvents()
-    monkeypatch.setattr(gcal_mod, "_ensure_credentials", lambda: object())
+    monkeypatch.setattr(
+        gcal_mod, "_ensure_credentials", lambda **_kwargs: object()
+    )
     monkeypatch.setattr(
         gcal_mod, "build", lambda *a, **kw: FakeService(events)
     )

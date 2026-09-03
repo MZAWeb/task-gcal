@@ -179,8 +179,17 @@ def collect(
     blocks: tuple[CalEvent, ...] = ()
     meetings: tuple[tuple[datetime, datetime], ...] = ()
     calendar_ok = True
-    client = gcal if gcal is not None else GCal(settings)
     try:
+        # Building the client is inside the `try` on purpose: on a machine
+        # that has never run `--setup` this is where it fails, and that is
+        # the most common calendar failure of all. `allow_interactive=False`
+        # keeps a read-only path from opening a browser — a review run from
+        # cron must degrade, not block on an OAuth flow.
+        client = (
+            gcal
+            if gcal is not None
+            else GCal(settings, allow_interactive=False)
+        )
         blocks = tuple(
             client.list_scheduler_events(
                 time_min=period.start - timedelta(days=BLOCK_LOOKBACK_DAYS),
@@ -194,9 +203,11 @@ def collect(
                 exclude_event_ids={b.id for b in blocks},
             )
         )
-    except Exception:  # noqa: BLE001 - any calendar failure is the same to us
+    except (Exception, SystemExit):  # noqa: BLE001
         # A review is a document, not a transaction: report what we have and
-        # mark the rest unmeasured rather than failing the whole run.
+        # mark the rest unmeasured rather than failing the whole run. Any
+        # calendar failure is the same to us, and `SystemExit` is named
+        # explicitly because that's what missing credentials raise.
         calendar_ok = False
 
     journal = load(

@@ -61,7 +61,16 @@ def _write_secure(path, content: str) -> None:
         raise
 
 
-def _ensure_credentials() -> Credentials:
+class AuthUnavailable(Exception):
+    """Authorizing would need a browser, and the caller can't have one.
+
+    Raised instead of opening an OAuth flow on a read-only path. A review run
+    from cron must degrade to "the calendar could not be read" rather than
+    block forever waiting for a browser nobody is looking at.
+    """
+
+
+def _ensure_credentials(*, allow_interactive: bool = True) -> Credentials:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
         os.chmod(CONFIG_DIR, 0o700)
@@ -90,6 +99,14 @@ def _ensure_credentials() -> Credentials:
         else:
             _write_secure(TOKEN_PATH, creds.to_json())
             return creds
+
+    # Everything from here needs a browser. A read-only path says so and lets
+    # its caller carry on without the calendar.
+    if not allow_interactive:
+        raise AuthUnavailable(
+            "not authorized, and authorizing needs a browser — "
+            "run `task-gcal --setup` once"
+        )
 
     if not CREDENTIALS_PATH.exists():
         raise SystemExit(
@@ -128,8 +145,8 @@ def _is_declined_by_self(raw: dict) -> bool:
 
 
 class GCal:
-    def __init__(self, settings: Settings) -> None:
-        creds = _ensure_credentials()
+    def __init__(self, settings: Settings, *, allow_interactive: bool = True) -> None:
+        creds = _ensure_credentials(allow_interactive=allow_interactive)
         self._svc = build(
             "calendar", "v3", credentials=creds, cache_discovery=False
         )
