@@ -272,7 +272,9 @@ plan items onto a task-gcal-owned calendar. This avoids duplicate workouts.
 Ordered passes make "protect my training time" real, but they also create a
 stability problem: adding one commitment can cascade-move many task events.
 Prefer existing valid placements within each pass, then place only new or
-invalid items. Minimize churn before optimizing for earliest placement.
+invalid items. Minimize churn before optimizing for earliest placement — but
+that's a bigger decision than pass ordering, it applies to today's single-pass
+scheduler already, and it gets its own section (§1.8).
 
 ### 1.5 Subcommands
 
@@ -330,6 +332,63 @@ Add with the relevant later phase:
 Do not make a big-bang module split a prerequisite for recording history.
 Extract seams as each tested vertical slice needs them; otherwise Phase 0 can
 become an architecture project with no user-visible payoff.
+
+### 1.8 Schedule stability — is the calendar a plan or a suggestion?
+
+This is a change to the behaviour the tool has today, independent of every
+theme above, and probably the highest-value small thing in this document.
+
+**Today:** each run re-derives every placement from scratch and takes the
+earliest slot that fits. So a task sitting at Thursday 14:00 moves to Tuesday
+09:00 the moment a meeting is cancelled, and a newly urgent task shuffles
+everything behind it. The README promises exactly this ("finds the earliest
+aligned slot"), and for a scheduler that runs once it's the right answer. For
+one that runs several times a day — which §1.1's `snapshot` cadence makes more
+likely, not less — it means the calendar you looked at this morning is not the
+calendar you'll act on this afternoon.
+
+Three costs, in order of how much they matter:
+
+1. **You stop trusting it.** A block that might move isn't a commitment, so you
+   don't plan around it, so the tool degrades into a list with timestamps.
+2. **Follow-through (§3.5) becomes unmeasurable.** You can't miss a plan you
+   never had; churn and follow-through would measure the scheduler's
+   restlessness, not your behaviour.
+3. **Every run patches events that didn't need patching** — API calls, and
+   notification noise for any block with attendees.
+
+**Proposed:** keep an existing placement unless it is *invalid*, where invalid
+means precisely — overlaps busy time, falls outside its lane's window, ends
+after the effective deadline, starts before the `scheduled`/`wait` floor, or
+its duration no longer matches the estimate. Re-place only invalid and new
+items. This generalizes the in-progress pinning that already exists: an
+in-progress block is just the extreme case of sticky.
+
+With one nuance, because pure stickiness would leave tasks needlessly late:
+
+```toml
+settle_days = 2      # placements within 2 days are sticky unless invalid
+                     # 0 restores today's always-earliest behaviour
+```
+
+Tomorrow shouldn't move. Next Thursday can be re-optimized freely, because
+you haven't planned your Thursday yet.
+
+Two consequences to accept deliberately:
+
+- **Placement is no longer globally optimal.** A newly urgent task takes the
+  earliest *free* slot rather than the best one, because the better slot
+  already belongs to a promise you made yesterday. That's the right trade: the
+  scheduler should not be allowed to overrule your past self for a marginal
+  gain, and urgency already changes every hour via Taskwarrior's age
+  coefficient — chasing it is what causes the churn.
+- **`--reoptimize` exists for when you do want the reshuffle**, and the review
+  can point out when it would help ("3 tasks could start a day earlier").
+
+**Sequencing note:** this should land *before* Phase 1's journal, or the first
+weeks of placement-churn history describe a policy we're about to replace —
+the same definition-versioning trap as §1.1. If it lands after, `settle_days`
+must be part of `settings_hash` so reviews can see the boundary.
 
 ---
 
@@ -761,6 +820,7 @@ Ordered by dependency and by how soon each pays off.
 | --- | --- | --- | --- |
 | **✓** | Bulk-removal guard (§0) | — | Shipped; a bad input can no longer clear the calendar |
 | **0** | pytest + `FakeGCal` + characterization tests; extract only the seams Phase 1 needs | — | Refactoring safety without a big-bang rewrite |
+| **0.5** | **Schedule stability** (§1.8): keep valid placements inside `settle_days` | 0 | The calendar becomes a plan; makes follow-through measurable |
 | **1** | **Run journal** + `snapshot` + launchd cadence + `review --week` on data we already have (capacity, throughput, backlog flow, lead time, follow-through) | 0 | Immediate, and **starts the clock on history** |
 | **2** | `Demand` abstraction + event identity migration; lanes + placement passes + configured fitness blocks (quotas, spacing) | 0 | The other half of your ask, no external deps |
 | **3** | Churn + stagnation detection; `--triage` (print-only first) | 1 + ~3 weeks of journal | The "why do I keep pushing this" answer |
@@ -773,6 +833,7 @@ Each phase ships as a usable vertical slice with an acceptance check:
 | Phase | Done when |
 | --- | --- |
 | **0** | The five subtle behaviours (overdue horizon, in-progress pinning, duplicate cleanup, `scheduled`/`wait` floors, midnight-due bump) each fail a deliberately broken implementation, and `find_earliest_slot` is tested across a DST boundary |
+| **0.5** | Two consecutive runs with a cancelled meeting between them move nothing inside `settle_days`; an invalid placement still moves; `settle_days = 0` reproduces today's behaviour exactly |
 | **1** | The same review regenerates byte-identically from the same journal; a failed or interrupted append never affects the calendar; `snapshot` makes no mutating API call; a truncated last line and an unknown future field both parse; every number prints its coverage |
 | **2** | A 3×/week template places exactly 3 sessions, respects spacing, produces no duplicates across repeated runs, adopts nothing it doesn't own, survives a failed source without deleting a single event, and reports an unplaceable session instead of silently dropping it |
 | **3** | Churn counts reproduce by hand from two journal records; `--triage` prints commands and touches nothing; every stagnation entry carries a prescribed action |
@@ -780,8 +841,11 @@ Each phase ships as a usable vertical slice with an acceptance check:
 | **5** | Every score recomputes from the journal alone; unobserved days pause streaks and are shown as gaps; the whole scoreboard switches off in one config line |
 | **6** | A source that returns HTTP 500, an empty feed, and a duplicate UID are each distinguishable from "everything was cancelled" |
 
-Two notes on the order:
+Three notes on the order:
 
+- **Phase 0.5 is small and comes early** because it changes behaviour the
+  journal is about to start recording (§1.8), and because it's the difference
+  between a calendar you plan around and one you re-read.
 - **Phase 1 should ship before Phase 2**, even though Phase 2 is the more fun
   feature — the journal only becomes valuable with age, and Phase 3 and 5 are
   gated on having a few weeks of it. Ship the boring append-only file first.
