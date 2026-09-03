@@ -572,7 +572,9 @@ class ReviewHarness:
         chosen = (
             metrics_mod.selected(review.sections, sections)
             if sections
-            else metrics_mod.summary_sections(review.sections)
+            else metrics_mod.summary_sections(
+                review.sections, kind=review.period.kind
+            )
         )
         return render(
             review, fmt=fmt, sections=chosen, detailed=detailed or bool(sections)

@@ -89,7 +89,7 @@ def run(
 
     # The default is the one-screen summary. Detailed sections are requested
     # rather than always printed — the whole point of not being a dashboard.
-    chosen = metrics.summary_sections(review.sections)
+    chosen = metrics.summary_sections(review.sections, kind=period.kind)
     if request.sections:
         chosen = metrics.selected(review.sections, request.sections)
         if not chosen:

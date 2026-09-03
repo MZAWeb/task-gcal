@@ -8,6 +8,7 @@ thirteen metrics every time is a dashboard.
 
 from __future__ import annotations
 
+from ..metrics import trends as trends_metric
 from ..model import Review, Section
 
 # Wide enough for the longest label, so the summaries line up into a column
@@ -54,8 +55,33 @@ def _summary_line(section: Section) -> str:
     return f"{label}{section.summary}"
 
 
+def _sparklines(section: Section) -> list[str]:
+    """One line per trend series: name, block-character shape, endpoints.
+
+    The choice of medium belongs to the renderer. HTML draws real SVG for the
+    same data; these characters would render there as a row of solid boxes.
+    """
+    if section.key != trends_metric.KEY:
+        return []
+    rows = trends_metric.series_for_display(section.data)
+    if not rows:
+        return []
+    width = max(len(name) for name, _values, _unit in rows)
+    out = []
+    for name, values, unit in rows:
+        bars = trends_metric.sparkline(list(values))
+        if not bars:
+            continue
+        first, last = values[0], values[-1]
+        out.append(
+            f"  {name.ljust(width)}  {bars}  "
+            f"{first:g}{unit} → {last:g}{unit}"
+        )
+    return out
+
+
 def _detail_block(section: Section) -> list[str]:
-    out: list[str] = []
+    out: list[str] = _sparklines(section)
     for line in section.detail:
         out.extend(_fit(line, indent="  ", subsequent="    "))
     for coverage in section.coverage:

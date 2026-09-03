@@ -154,6 +154,7 @@ printed, which is the difference between a review and a dashboard:
 | `scope` | Estimates revised up, titles rewritten, deliberate deferral |
 | `boundaries` | Evenings and weekends actually claimed |
 | `stagnation` | What needs a decision |
+| `trends` | The same three numbers over 12 weeks (in a monthly summary) |
 
 ### `task-gcal review --triage`
 
@@ -240,6 +241,18 @@ failure names its fix rather than just the symptom:
                     → run `task-gcal backfill` to seed history, and
                       `task-gcal snapshot` on a timer to keep it
 [ ok ] check-ins    none recorded (optional — reviews work without them)
+```
+
+A monthly review adds a 12-week trend. It adds no new *metric* — the same
+numbers over time — and it refuses to average across a boundary where the
+settings or a metric's definition changed, because the same field then
+meant two different things:
+
+```text
+Trend          12w · done 27 → 2 · median 6.5
+  Completed                 ▇▂▄▂▃▃▁▂█▂▂▁  27 → 2
+  Follow-through            █▁▁▁▃▂▁▁▃▃▁▁  67% → 0%
+  Observed deadline pushes  ▁▁▁▁▁▁▁▁▁▁▁▁  0 → 0
 ```
 
 `--format` renders the same internal model four ways: `terminal`

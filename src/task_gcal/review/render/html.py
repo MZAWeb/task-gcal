@@ -26,8 +26,9 @@ from html import escape
 from ...intervals import humanize_minutes
 from ..metrics import capacity as capacity_metric
 from ..metrics import throughput as throughput_metric
+from ..metrics import trends as trends_metric
 from ..model import Review, Section
-from .charts import Slice, bar_rows, stacked_bar
+from .charts import Slice, bar_rows, sparklines, stacked_bar
 
 # Values from the validated reference palette. Both modes are selected sets
 # stepped for their own surface — the dark column is not a lightened flip —
@@ -123,6 +124,19 @@ text.axis, text.value {
 }
 text.value { fill: var(--text-secondary); font-variant-numeric: tabular-nums; }
 line.grid { stroke: var(--grid); stroke-width: 1; }
+polyline.spark {
+  fill: none;
+  stroke: var(--series-1);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+circle.spark-end {
+  fill: var(--series-1);
+  stroke: var(--surface-1);
+  stroke-width: 2;
+}
+.axis-note { color: var(--text-muted); font-size: 0.8rem; margin: 0; }
 details { margin-bottom: 0.75rem; }
 summary { cursor: pointer; color: var(--text-secondary); }
 ul.detail { margin: 0.5rem 0 0; padding-left: 1.25rem; }
@@ -227,7 +241,31 @@ def _charts(review: Review, sections: tuple[Section, ...]) -> list[str]:
         if chart:
             out.append(f'<div class="card">{chart}</div>')
 
+    trend = review.section(trends_metric.KEY)
+    if trend is not None and trend.key in keys and trend.measured:
+        chart = _trend_charts(trend)
+        if chart:
+            out.append(f'<div class="card">{chart}</div>')
+
     return out
+
+
+def _trend_charts(section: Section) -> str:
+    """Small multiples of the weekly series, one chart per measure.
+
+    Small multiples rather than one chart with three y scales — counts, a
+    percentage and hours share no axis, and two scales on one chart is the
+    single worst thing a chart can do.
+    """
+    rows = trends_metric.series_for_display(section.data)
+    if not rows:
+        return ""
+    labels = [
+        w["label"]
+        for w in (section.data.get("weeks") or [])
+        if w.get("comparable")
+    ]
+    return sparklines(rows, labels=labels)
 
 
 def _section_details(section: Section, *, open_by_default: bool) -> str:

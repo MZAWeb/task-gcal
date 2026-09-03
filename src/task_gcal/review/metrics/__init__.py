@@ -26,6 +26,7 @@ from . import (
     scope,
     stagnation_section,
     throughput,
+    trends,
 )
 
 SectionBuilder = Callable[[object], Section]
@@ -44,6 +45,7 @@ _BUILDERS: tuple[tuple[str, SectionBuilder], ...] = (
     (scope.KEY, scope.build),
     (boundaries.KEY, boundaries.build),
     (stagnation_section.KEY, stagnation_section.build),
+    (trends.KEY, trends.build),
 )
 
 # The default weekly review has to fit one terminal screen, so only these
@@ -70,9 +72,18 @@ def section_keys() -> tuple[str, ...]:
     return tuple(key for key, _build in _BUILDERS)
 
 
-def summary_sections(sections: Iterable[Section]) -> tuple[Section, ...]:
-    """The one-screen default: the headline families, in report order."""
-    return tuple(s for s in sections if s.key in SUMMARY_KEYS)
+def summary_sections(
+    sections: Iterable[Section], *, kind: str = ""
+) -> tuple[Section, ...]:
+    """The one-screen default: the headline families, in report order.
+
+    A monthly review adds the trend, because history is the point of looking
+    at a month. It adds no new *metric* — the same three numbers over time.
+    """
+    wanted = set(SUMMARY_KEYS)
+    if trends.wanted_for(kind):
+        wanted.add(trends.KEY)
+    return tuple(s for s in sections if s.key in wanted)
 
 
 def selected(sections: Iterable[Section], keys: Iterable[str]) -> tuple[Section, ...]:

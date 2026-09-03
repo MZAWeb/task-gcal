@@ -51,6 +51,7 @@ _SECTION_CHOICES = (
     "scope",
     "boundaries",
     "stagnation",
+    "trends",
 )
 
 _FORMAT_CHOICES = ("terminal", "markdown", "json", "html")

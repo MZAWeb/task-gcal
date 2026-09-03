@@ -154,6 +154,72 @@ def bar_rows(
     )
 
 
+def sparklines(
+    rows: Sequence[tuple[str, Sequence[float], str]], *, labels: Sequence[str]
+) -> str:
+    """One small line chart per series, sharing an x axis of period labels.
+
+    Small multiples rather than one chart with several y scales: the series
+    are counts, rates and hours, and putting two scales on one chart is the
+    single worst thing a chart can do.
+    """
+    present = [(name, list(values), unit) for name, values, unit in rows if values]
+    if not present:
+        return ""
+
+    width = CHART_WIDTH
+    height = 56.0
+    inset = 6.0  # room for the end marker and its surface ring
+    charts: list[str] = []
+    for name, values, unit in present:
+        peak = max(values)
+        # Only the geometry needs a non-zero divisor; the caption reports the
+        # real peak, so an all-zero series doesn't claim a peak of one.
+        scale = peak or 1.0
+        step = (width - inset) / max(len(values) - 1, 1)
+
+        def y_for(value: float, scale: float = scale) -> float:
+            # Scaled from zero, so a flat-but-high series can't be mistaken
+            # for a flat-but-low one.
+            return height - inset - (value / scale) * (height - 2 * inset)
+
+        points = " ".join(
+            f"{index * step:.1f},{y_for(value):.1f}"
+            for index, value in enumerate(values)
+        )
+        last_x = (len(values) - 1) * step
+        charts.append(
+            f'<figure class="chart">'
+            f"<figcaption>{escape(name)} — "
+            f"{escape(f'{values[0]:g}')} to {escape(f'{values[-1]:g}')}"
+            f"{escape(unit)}, peak {escape(f'{peak:g}')}{escape(unit)}"
+            f"</figcaption>"
+            f'<svg viewBox="0 0 {width:.0f} {height:.0f}" width="100%" '
+            f'height="{height:.0f}" role="img" '
+            f'aria-label="{escape(name)} over {len(values)} periods">'
+            # Two hairlines give the line a scale: the peak it is measured
+            # against, and the zero it is measured from.
+            f'<line class="grid" x1="0" y1="{y_for(peak):.1f}" '
+            f'x2="{width:.0f}" y2="{y_for(peak):.1f}" />'
+            f'<line class="grid" x1="0" y1="{y_for(0):.1f}" '
+            f'x2="{width:.0f}" y2="{y_for(0):.1f}" />'
+            f'<polyline class="spark" points="{points}" />'
+            # A ring in the surface colour keeps the end marker legible where
+            # it crosses the line, and makes it a real hover target.
+            f'<circle class="spark-end" cx="{last_x:.1f}" '
+            f'cy="{y_for(values[-1]):.1f}" r="4" />'
+            f"<title>{escape(name)}: {escape(f'{values[-1]:g}')}"
+            f"{escape(unit)} most recently</title>"
+            f"</svg></figure>"
+        )
+
+    axis = " · ".join(escape(label) for label in labels[-4:])
+    return (
+        f'{"".join(charts)}'
+        f'<p class="axis-note">Oldest to newest, ending {axis}</p>'
+    )
+
+
 def _ellipsize(text: str, limit: int) -> str:
     """Shorten rather than let a long project name collide with its bar.
 
