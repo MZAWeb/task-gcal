@@ -245,6 +245,12 @@ end_hour   = 8
 days       = [0,1,2,3,4,5,6]
 ```
 
+**Two bugs block overnight lanes** (both found by the Phase 0 tests, both
+harmless under the default 9-18 window, see §6.1): a slot spanning a DST
+transition doesn't hold the right amount of real time, and `end_hour = 24`
+raises `ValueError`. A `[lanes.evening]` running to midnight, or anything
+crossing 01:00-02:00, needs both fixed first.
+
 Back-compat: top-level `work_start_hour`/`work_end_hour`/`work_days` keep
 working and define the `work` lane. Every demand declares a lane; Taskwarrior
 demands default to `work` and can override per task (`gcal:'lane=personal'`).
@@ -542,27 +548,32 @@ Your actual monthly rate, for calibration: Mar 69, Apr 102, May 47, Jun 65,
 Jul 33, Aug 50. That variance is itself the interesting thing to explain — and
 §3.2/§3.6 are how we explain it.
 
-**The denominator problem, which is bigger than the estimate-coverage line
-suggests.** `report.next.filter` is `status:pending due.any: -WAITING`, so the
-scheduler only ever sees tasks that already have a due date: 16 of your 22
-pending tasks today, all 16 with an estimate. But of 1749 completed tasks, only
-149 ever had a due date and 103 an estimate. **Roughly 9% of the work you
-finish passes through the scheduler at all.** Every block-derived metric —
-follow-through, placement churn, calibration, boundary erosion — measures that
-slice, not your week.
+**Coverage is a history problem, not a workflow problem.** `report.next.filter`
+is `status:pending due.any: -WAITING`, so the scheduler only sees tasks that
+already carry a due date — and across all 1749 completed tasks that looks
+alarming (149 with a due date, 103 with an estimate). Splitting at this repo's
+first commit shows why that aggregate is misleading:
 
-That's not fatal, but it has to be explicit, and it needs a decision:
+| Completed | n | with `due` | with `estimate` |
+| --- | --- | --- | --- |
+| before 2026-06-14 | 1626 | 3.7% | 1.0% |
+| since 2026-06-14 | 123 | **72.4%** | **70.7%** |
 
-- **Label it honestly.** Two throughput numbers: *all completed work* and
-  *scheduled work*, never summed into one. Cheap, and it should happen
-  regardless.
-- **Widen what we schedule.** A report that includes estimate-bearing tasks
-  without a due date, placed on a soft horizon rather than a deadline. Changes
-  scheduling behaviour, so it's a real decision, not a metric tweak.
-- **Improve coverage at the source.** The review leads with it, and `checkin`
-  offers to estimate the un-estimated. Probably higher leverage than the
-  Calibration dial it feeds, since a perfect ratio over 9% of your work is
-  still a rumour.
+The old numbers describe a way of using Taskwarrior that has since been
+replaced: the workflow standardized on due + estimate when this repo started,
+and coverage should keep climbing toward 100%. So:
+
+- **Forward-looking metrics are fine.** Don't design around a limitation that's
+  already been fixed at the source. Every block-derived metric —
+  follow-through, placement churn, calibration, boundary erosion — applies to
+  essentially all new work.
+- **Retrospective baselines are not.** A rolling 12-week median is safe; "versus
+  last year" is not. Reviews must refuse to compare across 2026-06-14 rather
+  than silently averaging two different workflows — the same boundary rule as
+  §1.1's definition versions, and the first concrete instance of it.
+- **Keep printing coverage per period anyway** (§3.0's rule). Not because the
+  workflow is in doubt, but because a drop is how we'd notice it slipping.
+- The remaining ~28% is worth a nudge in the review, not a redesign.
 
 ### 3.2 Meeting load — *available today, and I think this is the sleeper feature*
 
@@ -819,7 +830,8 @@ Ordered by dependency and by how soon each pays off.
 | Phase | What | Depends on | Payoff |
 | --- | --- | --- | --- |
 | **✓** | Bulk-removal guard (§0) | — | Shipped; a bad input can no longer clear the calendar |
-| **0** | pytest + `FakeGCal` + characterization tests; extract only the seams Phase 1 needs | — | Refactoring safety without a big-bang rewrite |
+| **✓** | Test battery: 224 tests, no production changes, 23 of 25 mutants caught (§1.7, §6.1) | — | Shipped; the subtle rules are now pinned |
+| **0** | Extract only the seams Phase 1 needs | ✓ | Refactoring safety without a big-bang rewrite |
 | **0.5** | **Schedule stability** (§1.8): keep valid placements inside `settle_days` | 0 | The calendar becomes a plan; makes follow-through measurable |
 | **1** | **Run journal** + `snapshot` + launchd cadence + `review --week` on data we already have (capacity, throughput, backlog flow, lead time, follow-through) | 0 | Immediate, and **starts the clock on history** |
 | **2** | `Demand` abstraction + event identity migration; lanes + placement passes + configured fitness blocks (quotas, spacing) | 0 | The other half of your ask, no external deps |
@@ -832,7 +844,7 @@ Each phase ships as a usable vertical slice with an acceptance check:
 
 | Phase | Done when |
 | --- | --- |
-| **0** | The five subtle behaviours (overdue horizon, in-progress pinning, duplicate cleanup, `scheduled`/`wait` floors, midnight-due bump) each fail a deliberately broken implementation, and `find_earliest_slot` is tested across a DST boundary |
+| **0** | ✓ **Met.** The five subtle behaviours each fail a deliberately broken implementation, and `find_earliest_slot` is tested across both DST boundaries. Verified by mutation, not coverage: 25 deliberate breaks, 23 caught, the 2 survivors provably equivalent |
 | **0.5** | Two consecutive runs with a cancelled meeting between them move nothing inside `settle_days`; an invalid placement still moves; `settle_days = 0` reproduces today's behaviour exactly |
 | **1** | The same review regenerates byte-identically from the same journal; a failed or interrupted append never affects the calendar; `snapshot` makes no mutating API call; a truncated last line and an unknown future field both parse; every number prints its coverage |
 | **2** | A 3×/week template places exactly 3 sessions, respects spacing, produces no duplicates across repeated runs, adopts nothing it doesn't own, survives a failed source without deleting a single event, and reports an unplaceable session instead of silently dropping it |
@@ -884,6 +896,34 @@ Checked, and worth recording because two of them shaped decisions above:
 - [x] The override UDA survives on completed tasks, so §3.7's override counts
       are computable today — 30 of 1749, with the intent split shown there.
 
+### 6.1 Findings from the Phase 0 test pass
+
+Three real defects surfaced while pinning current behavior. None is reachable
+with the default 9-18 working window, so all three are recorded rather than
+fixed — but the first two gate §1.3's lanes, which is the point of writing them
+down here instead of in a commit message.
+
+1. **Slot arithmetic is wall-clock, not elapsed time.** `slot_start +
+   timedelta(minutes=estimate)` on a zone-aware datetime advances the wall
+   clock, so a block spanning a DST transition doesn't contain `estimate`
+   minutes of real time: 6h becomes 5 real hours over spring-forward and 7 over
+   fall-back. An estimate is minutes of *work*, so the block should be the
+   requested elapsed time or not fit at all. Pinned by
+   `test_slot_length_is_wall_clock_not_elapsed_time`, with the intended
+   behaviour as an xfail.
+2. **`work_end_hour = 24` raises `ValueError`.** `--work-end` documents 0-24,
+   but `time(24, 0)` is invalid. Any lane ending at midnight hits this. xfailed.
+3. **A fractional estimate can round to a zero-minute block.**
+   `_coerce_estimate` rejects values `<= 0` before rounding, so `estimate:0.4`
+   survives as `0` and would produce a zero-length event. Harmless in practice
+   (nobody writes `0.4`), and cheapest to fix by rejecting a rounded zero.
+
+Also worth knowing, as a property rather than a defect: a scheduler-tagged
+event with **no** `taskUuid` is collected as an orphan when it's in the future.
+That's the right call — it can only come from a bug or a hand-edited copy — but
+it was a guess until the test made it explicit, and §1.2's `source`/`key`
+migration must not accidentally make every pre-migration event look like one.
+
 ---
 
 ## 7. Open questions for you
@@ -908,11 +948,10 @@ Checked, and worth recording because two of them shaped decisions above:
    motivates you.
 7. **Is writing to Taskwarrior acceptable** for triage (§3.4), or should we stay
    strictly read-only and just print the commands?
-8. **The 9% problem (§3.1).** Only about a tenth of the work you complete ever
-   passes through the scheduler, because `next` requires a due date. Do we (a)
-   label the two populations separately, (b) widen what we schedule to
-   estimate-bearing tasks without a due date, or (c) treat raising coverage as
-   the goal itself? This decides how much any block-based metric is worth.
+8. ~~**The 9% problem.**~~ **Answered:** the low aggregate is historical. Since
+   2026-06-14 coverage is 72% due / 71% estimate and rising, because the
+   workflow standardized on both when this repo started (§3.1). The only
+   consequence left is that reviews must not compare across that boundary.
 9. **Should we honour your active Taskwarrior context?** None are defined today,
    so this is free to decide now. Honouring it means `task context personal`
    plus a run would treat every work task as gone; ignoring it (`rc.context=none`)
