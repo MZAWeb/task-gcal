@@ -257,6 +257,40 @@ def test_doctor_takes_no_arguments_of_its_own():
 # The fast path stays fast
 # ---------------------------------------------------------------------------
 
+def test_every_command_the_readme_documents_still_parses():
+    """Catch the README drifting from the parser.
+
+    Renaming a flag and forgetting the docs is the easiest way to leave a
+    user following instructions that don't work, and it's invisible to every
+    other test here.
+    """
+    import re
+    from pathlib import Path
+
+    readme = Path(__file__).resolve().parent.parent / "README.md"
+    # Whole lines that are an invocation, with any trailing `# comment`
+    # dropped. Lines continued with a backslash are skipped: only their first
+    # fragment is on the line, so parsing it would fail for the wrong reason.
+    invocation = re.compile(r"^ *task-gcal((?: +[^\s#]+)*) *(?:#.*)?$", re.M)
+    documented = sorted(
+        {
+            args
+            for line, args in (
+                (m.group(0), m.group(1)) for m in invocation.finditer(readme.read_text())
+            )
+            if not line.rstrip().endswith("\\")
+        }
+    )
+    assert len(documented) > 10, "the README stopped documenting commands"
+
+    for argv in documented:
+        tokens = argv.split()
+        try:
+            cli_mod._build_parser().parse_args(cli_mod._normalize_argv(tokens))
+        except SystemExit:  # pragma: no cover - only on a real regression
+            raise AssertionError(f"README documents `task-gcal {argv}`") from None
+
+
 def test_scheduling_never_imports_the_review_code():
     # "Bare `task-gcal` never loads historical analytics or reporting code."
     # A stray module-level import in cli.py would break it silently, so the
