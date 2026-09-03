@@ -48,11 +48,10 @@ _ESTIMATE_DRIFT = 1.3
 
 
 def build(facts) -> Section:
-    answers = [
-        r
-        for r in load().values()
-        if facts.period.contains(r.covers_until)
-    ]
+    stored = load().values()
+    answers = [r for r in stored if facts.period.contains(r.covers_until)]
+    previous_period = facts.period.shifted(-1)
+    previous = [r for r in stored if previous_period.contains(r.covers_until)]
     if not answers:
         return Section(
             key=KEY,
@@ -93,6 +92,7 @@ def build(facts) -> Section:
             "assigned a cause"
         )
 
+    detail.extend(_shift(reasons, previous, facts))
     detail.extend(_actual_time(answers, facts))
     detail.extend(_patterns(misses, facts))
     detail.append(
@@ -124,9 +124,41 @@ def build(facts) -> Section:
             "reasons": dict(reasons.most_common()),
             "unclassified": unclassified,
             "with_actuals": sum(1 for r in answers if r.actual_minutes),
+            "previous_reasons": dict(
+                Counter(
+                    r.reason for r in previous if r.outcome in _MISSES and r.classified
+                ).most_common()
+            ),
         },
         suggestions=suggestions,
     )
+
+
+def _shift(reasons: Counter, previous: list, facts) -> list[str]:
+    """How the mix moved since the previous period.
+
+    Period-over-period rather than a 12-week series per reason: at realistic
+    check-in volumes a weekly series for each of five reasons is almost all
+    zeros, and a chart of zeros is not a trend.
+
+    Movements only. There is no "improved" or "worsened" here, because that
+    would make one answer better than another to give.
+    """
+    before = Counter(
+        r.reason for r in previous if r.outcome in _MISSES and r.classified
+    )
+    if not before:
+        return []
+    moves = []
+    for reason in sorted(set(reasons) | set(before)):
+        change = reasons[reason] - before[reason]
+        if change:
+            moves.append(f"{reason} {change:+d}")
+    if not moves:
+        return [
+            f"Since last {facts.period.kind}  the mix is unchanged",
+        ]
+    return [f"Since last {facts.period.kind}  {' · '.join(moves)}"]
 
 
 def _actual_time(answers, facts) -> list[str]:

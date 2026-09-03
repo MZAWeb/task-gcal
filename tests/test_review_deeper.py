@@ -412,6 +412,54 @@ def test_actual_time_is_reported_for_finished_work(review, isolated_journal):
     assert "these tasks only" in text
 
 
+def test_the_mix_is_compared_with_the_previous_period(review, isolated_journal):
+    reflections.append(
+        a_reflection(episode="p@1", reason="capacity", covers_until=at(-7, 10))
+    )
+    reflections.append(
+        a_reflection(episode="p@2", reason="avoided", covers_until=at(-7, 11))
+    )
+    reflections.append(a_reflection(episode="a@1", reason="capacity"))
+    reflections.append(a_reflection(episode="a@2", reason="capacity"))
+    review.tasks(a_task(uuid="a"))
+
+    text = "\n".join(data(review, friction.KEY).detail)
+    assert "Since last week" in text
+    assert "avoided -1" in text
+    assert "capacity +1" in text
+
+
+def test_a_shift_says_nothing_without_a_previous_period(review, isolated_journal):
+    reflections.append(a_reflection(reason="capacity"))
+    review.tasks(a_task(uuid="a"))
+
+    text = "\n".join(data(review, friction.KEY).detail)
+    assert "Since last" not in text
+
+
+def test_an_unchanged_mix_says_so(review, isolated_journal):
+    reflections.append(
+        a_reflection(episode="p@1", reason="capacity", covers_until=at(-7, 10))
+    )
+    reflections.append(a_reflection(episode="a@1", reason="capacity"))
+    review.tasks(a_task(uuid="a"))
+
+    assert "the mix is unchanged" in "\n".join(data(review, friction.KEY).detail)
+
+
+def test_a_shift_never_calls_one_reason_better_than_another(review, isolated_journal):
+    # Ranking answers is how you train someone to stop giving honest ones.
+    reflections.append(
+        a_reflection(episode="p@1", reason="avoided", covers_until=at(-7, 10))
+    )
+    reflections.append(a_reflection(episode="a@1", reason="capacity"))
+    review.tasks(a_task(uuid="a"))
+
+    text = "\n".join(data(review, friction.KEY).detail).lower()
+    for judgement in ("improved", "worse", "better", "good", "bad"):
+        assert judgement not in text
+
+
 def test_patterns_wait_for_a_sample(review, isolated_journal):
     reflections.append(a_reflection(reason="avoided"))
     review.tasks(a_task(uuid="a"))
