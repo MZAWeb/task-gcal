@@ -290,6 +290,28 @@ def test_html_always_offers_a_table_of_every_value(populated):
     assert "<table>" in out
 
 
+def test_the_table_never_shows_a_python_repr(populated):
+    # Several sections hold lists of records — the promise ledger, the
+    # stagnation queue — and a `str()` of those defeats the point of the
+    # table being the readable way to reach a value.
+    populated.blocks(
+        a_block("stuck", at(0, 9), 60), a_block("stuck", at(1, 9), 60)
+    )
+    populated.tasks(a_task(uuid="stuck", id=40, description="Analyze peakon"))
+    out = populated.render("html", sections=("stagnation",))
+
+    assert "{&#x27;" not in out and "{'" not in out
+    assert "[{" not in out
+    # And the values are still reachable, named by the record they came from.
+    assert "entries[Analyze peakon].passed_blocks" in out
+    assert ">2<" in out
+
+
+def test_a_nested_dict_is_still_flattened(populated):
+    out = populated.render("html", sections=("throughput",))
+    assert "by_project.fraud" in out
+
+
 def test_html_escapes_a_task_title(review):
     review.tasks(
         a_task(

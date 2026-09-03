@@ -289,28 +289,55 @@ def _section_details(section: Section, *, open_by_default: bool) -> str:
     )
 
 
+def _row(label: str, measure: str, value: str) -> str:
+    return (
+        f"<tr><td>{escape(label)}</td><td>{escape(measure)}</td>"
+        f'<td class="num">{escape(value)}</td></tr>'
+    )
+
+
+def _flatten(measure: str, value) -> list[tuple[str, str]]:
+    """`(measure, value)` pairs for one `data` entry, however nested.
+
+    Several sections hold lists of records — the promise ledger, the tasks
+    whose estimates doubled, the stagnation queue — and a `str()` of those
+    puts a Python repr in a cell that's meant to be the readable way to
+    reach a value.
+    """
+    if isinstance(value, dict):
+        return [
+            (f"{measure}.{key}", str(item)) for key, item in value.items()
+        ]
+    if isinstance(value, (list, tuple)):
+        out: list[tuple[str, str]] = []
+        for index, item in enumerate(value):
+            if isinstance(item, dict):
+                # One row per field, named by whichever key identifies the
+                # record, so the rows read as "ledger[Prepare PIR].pushes".
+                name = item.get("label") or item.get("ref") or index
+                out.extend(
+                    (f"{measure}[{name}].{key}", str(sub))
+                    for key, sub in item.items()
+                    if key not in ("label", "uuid")
+                )
+            else:
+                out.append((f"{measure}[{index}]", str(item)))
+        return out
+    return [(measure, str(value))]
+
+
 def _table(sections: tuple[Section, ...]) -> str:
     """Every number as text.
 
     Not an afterthought: it's what makes the charts optional rather than the
     only way to reach a value.
     """
-    rows: list[str] = []
-    for section in sections:
-        for key, value in section.data.items():
-            if isinstance(value, dict):
-                for sub_key, sub_value in value.items():
-                    rows.append(
-                        f"<tr><td>{escape(section.label)}</td>"
-                        f"<td>{escape(f'{key}.{sub_key}')}</td>"
-                        f'<td class="num">{escape(str(sub_value))}</td></tr>'
-                    )
-            else:
-                rows.append(
-                    f"<tr><td>{escape(section.label)}</td>"
-                    f"<td>{escape(key)}</td>"
-                    f'<td class="num">{escape(str(value))}</td></tr>'
-                )
+    rows = [
+        _row(section.label, measure, value)
+        for section in sections
+        for key, raw in section.data.items()
+        for measure, value in _flatten(key, raw)
+    ]
     if not rows:
         return ""
     return (

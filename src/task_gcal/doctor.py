@@ -211,7 +211,11 @@ def _check_journal(settings: Settings, now: datetime) -> Check:
             "snapshot` on a timer to keep it",
         )
     read = load(since=now - timedelta(days=30))
-    days = len({r.at.date() for r in read.records})
+    # Local dates, like every other day count in the tool. `r.at.date()` is
+    # the UTC date, which in Sydney or Los Angeles attributes an evening
+    # snapshot to a different day than the review's own coverage line does.
+    tz = settings.resolve_timezone()
+    days = len({r.at.astimezone(tz).date() for r in read.records})
     detail = (
         f"{len(files)} month file(s); {len(read.records)} record(s) over "
         f"{days} day(s) in the last 30"

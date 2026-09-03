@@ -83,7 +83,7 @@ def build(facts) -> Section:
         f"Blocks ended      {len(ended)}",
         f"Task done by then {len(honored)} ({rate:.0%})",
         f"Passed still open {len(passed_open)}",
-        f"Completed off-plan {len(off_plan)} (no block had ended for them)",
+        f"Completed off-plan {len(off_plan)} (never had a block at all)",
     ]
     if worst_hour:
         hour, count = worst_hour.most_common(1)[0]

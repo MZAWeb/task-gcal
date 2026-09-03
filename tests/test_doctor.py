@@ -206,6 +206,26 @@ def test_dense_sampling_passes(health):
     assert " ok " in health.line("journal")
 
 
+def test_journal_days_are_counted_in_the_local_zone(health):
+    # A UTC date attributes an evening snapshot in Sydney to the next day,
+    # so `doctor` and the review's coverage line would disagree.
+    health.configure(timezone="Australia/Sydney")
+    for day in range(10):
+        # 09:00 UTC is 19:00 or 20:00 Sydney — the same local day each time,
+        # so a UTC count and a local count give different answers.
+        journal.append(
+            journal.build_record(
+                settings=health.settings,
+                mode=journal.MODE_SNAPSHOT,
+                at=NOW - timedelta(days=day),
+                observations=(),
+            )
+        )
+    health.run()
+    assert " ok " in health.line("journal")
+    assert "10 day(s)" in health.out
+
+
 def test_unreadable_journal_lines_are_surfaced(health, isolated_journal):
     journal.append(
         journal.build_record(
