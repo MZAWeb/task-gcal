@@ -1,8 +1,8 @@
 """Shared fixtures: a fake calendar, a fake `task export`, and a frozen clock.
 
-Nothing here touches the network, Taskwarrior, or the system timezone. Tests
-always set `timezone` explicitly in Settings — a test that passes only in
-Europe/London isn't a test.
+Nothing here touches the network, Taskwarrior, the system timezone, or the
+real journal. Tests always set `timezone` explicitly in Settings — a test
+that passes only in Europe/London isn't a test.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from typing import Optional
 import pytest
 
 from task_gcal import schedule as schedule_mod
+from task_gcal import snapshot as snapshot_mod
 from task_gcal import taskw as taskw_mod
 from task_gcal.config import Settings
 from task_gcal.gcal import CalEvent
@@ -349,6 +350,17 @@ class Harness:
         captured = self._capsys.readouterr()
         return RunResult(code=code, out=captured.out, err=captured.err)
 
+    def snapshot(self):
+        code = snapshot_mod.snapshot(self.settings)
+        captured = self._capsys.readouterr()
+        return RunResult(code=code, out=captured.out, err=captured.err)
+
+    def journal(self, **kwargs):
+        """Everything the journal recorded so far, oldest first."""
+        from task_gcal import journal as journal_mod
+
+        return journal_mod.load(**kwargs).records
+
 
 class RunResult:
     def __init__(self, code: int, out: str, err: str) -> None:
@@ -371,6 +383,19 @@ class RunResult:
         return []
 
 
+@pytest.fixture(autouse=True)
+def isolated_journal(tmp_path, monkeypatch):
+    """Point the journal at a temp dir for *every* test.
+
+    Autouse and unconditional: anything that runs a command may append an
+    observation, and a test suite that writes to the developer's real
+    history is a bug that only shows up as mysterious extra data.
+    """
+    root = tmp_path / "data"
+    monkeypatch.setenv("TASK_GCAL_DATA_DIR", str(root))
+    return root
+
+
 @pytest.fixture
 def harness(monkeypatch, capsys) -> Harness:
     tw = FakeTaskwarrior()
@@ -380,6 +405,8 @@ def harness(monkeypatch, capsys) -> Harness:
     monkeypatch.setattr(taskw_mod.subprocess, "run", tw.run)
     monkeypatch.setattr(schedule_mod, "GCal", lambda _settings: gcal)
     monkeypatch.setattr(schedule_mod, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(snapshot_mod, "GCal", lambda _settings: gcal)
+    monkeypatch.setattr(snapshot_mod, "datetime", _FrozenDatetime)
 
     return Harness(tw, gcal, capsys)
 

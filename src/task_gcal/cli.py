@@ -23,6 +23,7 @@ from .config import (
 )
 from .gcal import GCal
 from .schedule import reconcile
+from .snapshot import snapshot
 
 
 def _parse_work_days(raw: str) -> frozenset[int]:
@@ -207,11 +208,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     schedule_p.set_defaults(func=_run_schedule)
 
+    snapshot_p = sub.add_parser(
+        "snapshot",
+        parents=[overrides],
+        help="Record what the calendar and task list look like right now.",
+        description=(
+            "Append one observation to the journal and change nothing. "
+            "Safe to run on a schedule; makes no calendar writes."
+        ),
+    )
+    snapshot_p.set_defaults(func=lambda _args, settings: snapshot(settings))
+
     return parser
 
 
 # Recognized subcommands, for `_normalize_argv`.
-_SUBCOMMANDS = ("schedule",)
+_SUBCOMMANDS = ("schedule", "snapshot")
 
 # Top-level flags that must not be swallowed by the implicit `schedule`.
 _TOP_LEVEL_FLAGS = ("-h", "--help", "--version")

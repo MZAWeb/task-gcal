@@ -23,6 +23,7 @@ Example config.toml:
     settle_days     = 2                 # near-term placements stay put
     override_uda    = "gcal"            # task UDA holding per-task overrides
     removal_guard_ratio = 0.5           # max share of our events one run may remove
+    journal_detail  = "full"            # full | minimal | off
 """
 
 from __future__ import annotations
@@ -63,6 +64,9 @@ SCHEDULER_TAG = "task-gcal"
 # Allowed Google Calendar event visibility values.
 VISIBILITY_CHOICES = ("default", "public", "private", "confidential")
 
+# How much detail a journal record keeps. See `Settings.journal_detail`.
+JOURNAL_DETAIL_CHOICES = ("full", "minimal", "off")
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -98,6 +102,10 @@ class Settings:
     # Taskwarrior UDA holding inline per-task overrides (see
     # `parse_task_overrides`).
     override_uda: str = "gcal"
+    # How much a journal record keeps: "full" stores task descriptions,
+    # "minimal" replaces each with a short hash (enough to tell tasks apart
+    # and to notice a retitle, not enough to read), "off" writes nothing.
+    journal_detail: str = "full"
     # Email addresses to invite to created events. Empty by default and
     # only ever set per task (via the override UDA), never globally: you
     # don't want every task event to invite the same people.
@@ -149,6 +157,9 @@ def load_settings() -> Settings:
             ),
             lookback_days=int(get("lookback_days", defaults.lookback_days)),
             settle_days=int(get("settle_days", defaults.settle_days)),
+            journal_detail=coerce_journal_detail(
+                get("journal_detail", defaults.journal_detail)
+            ),
             override_uda=str(get("override_uda", defaults.override_uda)),
             removal_guard_ratio=float(
                 get("removal_guard_ratio", defaults.removal_guard_ratio)
@@ -179,6 +190,16 @@ def coerce_hour(raw, *, maximum: int = 23) -> int:
     if not 0 <= hour <= maximum:
         raise ValueError(f"hour must be between 0 and {maximum}, got {hour}")
     return hour
+
+
+def coerce_journal_detail(raw) -> str:
+    value = str(raw)
+    if value not in JOURNAL_DETAIL_CHOICES:
+        raise ValueError(
+            f"journal_detail must be one of "
+            f"{', '.join(JOURNAL_DETAIL_CHOICES)}, got {value!r}"
+        )
+    return value
 
 
 def coerce_work_days(raw: str) -> frozenset[int]:

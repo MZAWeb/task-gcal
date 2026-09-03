@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import tzinfo
 
+from .placement import Placement
 from .taskw import TaskInfo
 
 _WHEN_FMT = "%a %Y-%m-%d %H:%M"
@@ -29,7 +30,7 @@ def _override_flag(t: TaskInfo) -> str:
     return f"  [override: {t.overrides_raw}]" if t.overrides_raw else ""
 
 
-def _moved_flag(p) -> str:
+def _moved_flag(p: Placement) -> str:
     """Why a block we'd already committed to had to be given up.
 
     Near-term placements are sticky, so a move is now the exception and

@@ -33,6 +33,12 @@ class TaskInfo:
     tags: list[str]
     annotations: list[str]  # annotation texts, in Taskwarrior order
     overrides_raw: Optional[str]  # raw per-task override UDA value, unparsed
+    # Lifecycle facts. Scheduling ignores them; reviews are built on them —
+    # `entry`/`end` give lead time and backlog flow, and `end` is the one
+    # unambiguous "did this actually happen" signal we have.
+    status: Optional[str] = None  # pending | completed | deleted | waiting
+    entry: Optional[datetime] = None  # tz-aware UTC; when it was created
+    end: Optional[datetime] = None  # tz-aware UTC; completed/deleted at
 
     @property
     def ref(self) -> str:
@@ -153,6 +159,9 @@ def load_next_tasks(
                 tags=list(row.get("tags") or []),
                 annotations=_parse_annotations(row.get("annotations")),
                 overrides_raw=row.get(override_uda) or None,
+                status=row.get("status"),
+                entry=_parse_tw_datetime(row.get("entry")),
+                end=_parse_tw_datetime(row.get("end")),
             )
         )
     return tasks
