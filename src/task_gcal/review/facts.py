@@ -27,10 +27,16 @@ from typing import Optional
 
 from ..config import Settings
 from ..gcal import CalEvent, GCal
-from ..journal import JournalRead, load
-from ..journal import MODE_BACKFILL, MODE_SCHEDULE, MODE_SNAPSHOT
+from ..intervals import clip_to_windows, total_minutes
+from ..journal import (
+    MODE_BACKFILL,
+    MODE_SCHEDULE,
+    MODE_SNAPSHOT,
+    JournalRead,
+    load,
+)
 from ..taskw import TaskInfo, load_all_tasks
-from .periods import Period
+from .periods import Period, work_windows
 
 # How far before the period to pull our own blocks. Blocks-to-completion and
 # stagnation both ask "how many blocks came before this?", which needs blocks
@@ -136,19 +142,13 @@ class Facts:
     # meetings" would eventually disagree.
 
     def work_windows(self) -> list[tuple[datetime, datetime]]:
-        from .periods import work_windows
-
         return list(work_windows(self.period, self.settings))
 
     def working_minutes(self) -> int:
-        from ..intervals import total_minutes
-
         return total_minutes(self.work_windows())
 
     def meetings_in_working_hours(self) -> list[tuple[datetime, datetime]]:
         """Meeting time inside working hours, merged so it can be summed."""
-        from ..intervals import clip_to_windows
-
         return clip_to_windows(self.meetings, self.work_windows())
 
     def meeting_share(self) -> Optional[float]:
@@ -158,8 +158,6 @@ class Facts:
         available = self.working_minutes()
         if not available:
             return None
-        from ..intervals import total_minutes
-
         return total_minutes(self.meetings_in_working_hours()) / available
 
 
