@@ -414,3 +414,156 @@ def harness(monkeypatch, capsys) -> Harness:
 @pytest.fixture
 def hour() -> timedelta:
     return timedelta(hours=1)
+
+
+# ---------------------------------------------------------------------------
+# Review side
+# ---------------------------------------------------------------------------
+
+def a_task(
+    *,
+    uuid: str = "u1",
+    id: int = 1,
+    description: str = "a task",
+    urgency: float = 5.0,
+    due: Optional[datetime] = None,
+    scheduled: Optional[datetime] = None,
+    wait: Optional[datetime] = None,
+    estimate: Optional[int] = 60,
+    project: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+    overrides: Optional[str] = None,
+    status: str = "pending",
+    entry: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+):
+    """A `TaskInfo` as `load_all_tasks` would build it.
+
+    Distinct from `task_row`, which fakes the *export JSON* for the
+    scheduling path; reviews consume the parsed objects directly.
+    """
+    from task_gcal.taskw import TaskInfo
+
+    return TaskInfo(
+        uuid=uuid,
+        id=id,
+        description=description,
+        urgency=urgency,
+        due=due,
+        scheduled=scheduled,
+        wait=wait,
+        estimate_minutes=estimate,
+        project=project,
+        tags=list(tags or []),
+        annotations=[],
+        overrides_raw=overrides,
+        status=status,
+        entry=entry if entry is not None else NOW - timedelta(days=30),
+        end=end,
+    )
+
+
+def a_block(
+    task_uuid: Optional[str],
+    start: datetime,
+    minutes: int = 60,
+    *,
+    id: Optional[str] = None,
+    summary: str = "a task",
+) -> CalEvent:
+    """One of our managed calendar blocks, as the review side sees it."""
+    return CalEvent(
+        id=id or f"ev-{task_uuid}-{start:%m%d%H%M}",
+        summary=summary,
+        start=start,
+        end=start + timedelta(minutes=minutes),
+        task_uuid=task_uuid,
+        raw={},
+    )
+
+
+class ReviewHarness:
+    """Facts assembled by hand, so metrics are tested without any I/O."""
+
+    def __init__(self, now: datetime) -> None:
+        self.now = now
+        self.settings = Settings(timezone="UTC")
+        self._tasks: list = []
+        self._blocks: list[CalEvent] = []
+        self._meetings: list[tuple[datetime, datetime]] = []
+        self._records: list = []
+        self.calendar_ok = True
+        self.kind = "week"
+        self.offset = 0
+
+    def tasks(self, *tasks) -> "ReviewHarness":
+        self._tasks = list(tasks)
+        return self
+
+    def blocks(self, *blocks: CalEvent) -> "ReviewHarness":
+        self._blocks = list(blocks)
+        return self
+
+    def meetings(self, *intervals: tuple[datetime, datetime]) -> "ReviewHarness":
+        self._meetings = sorted(intervals)
+        return self
+
+    def records(self, *records) -> "ReviewHarness":
+        self._records = list(records)
+        return self
+
+    def configure(self, **kwargs) -> "ReviewHarness":
+        from dataclasses import replace
+
+        self.settings = replace(self.settings, **kwargs)
+        return self
+
+    def period(self):
+        from task_gcal.review.periods import resolve
+
+        return resolve(
+            self.kind,
+            self.settings.resolve_timezone(),
+            now=self.now,
+            offset=self.offset,
+        )
+
+    def facts(self):
+        from task_gcal.journal import JournalRead
+        from task_gcal.review.facts import Facts
+
+        return Facts(
+            period=self.period(),
+            settings=self.settings,
+            now=self.now,
+            tasks=tuple(self._tasks),
+            blocks=tuple(self._blocks),
+            meetings=tuple(self._meetings),
+            journal=JournalRead(records=list(self._records)),
+            calendar_ok=self.calendar_ok,
+        )
+
+    def review(self):
+        from task_gcal.review import build
+
+        return build(self.facts())
+
+    def render(self, fmt: str = "terminal", *, sections=(), detailed=False) -> str:
+        from task_gcal.review import metrics as metrics_mod
+        from task_gcal.review.render import render
+
+        review = self.review()
+        chosen = (
+            metrics_mod.selected(review.sections, sections)
+            if sections
+            else review.sections
+        )
+        return render(
+            review, fmt=fmt, sections=chosen, detailed=detailed or bool(sections)
+        )
+
+
+@pytest.fixture
+def review():
+    """A review harness whose clock is Friday of NOW's week, 15:00."""
+    return ReviewHarness(now=NOW + timedelta(days=4, hours=6))

@@ -84,6 +84,68 @@ task list came back empty. It reports what it held back and exits non-zero,
 having still created and updated everything else. `--force` overrides it;
 `removal_guard_ratio = 1.0` disables it.
 
+## Reviews
+
+```console
+task-gcal review --week
+task-gcal review --month
+task-gcal review --week --last 1          # the week before this one
+task-gcal review --week --section capacity
+task-gcal review --month --format markdown -o notes/2026-09.md
+task-gcal review --week --format json
+task-gcal review --month --format html --open
+```
+
+A review is a **document, not an application**: read-only,
+non-interactive, and one screen by default.
+
+```text
+Week 37
+
+Capacity       42h available · 10h meetings · 4h30 planned
+Completed      5 tasks · 5h planned
+Backlog        18 created · 14 completed · 3 deleted · net +1
+Lead time      median 6d · 90th 21d · longest 33d
+Follow-through 12 of 18 blocks honoured · 3 completed off-plan
+
+Coverage
+  4 of 7 day(s) observed. Anything the journal didn't see is missing, not zero.
+  Measured on calendar primary.
+
+Look at: Blocks at 16:00 kept passing with the task still open — stop
+scheduling work there.
+```
+
+Four rules shape everything in it:
+
+1. **Capacity comes first**, because meeting load is the denominator for
+   every completion number under it. A hard week with half its hours in
+   meetings is a different thing from an unexplained miss.
+2. **Every number carries its coverage.** `38/50 completed tasks had
+   estimates`, `4 of 7 days observed`, which calendar was measured. A
+   number without a denominator is a rumour, and missing data never
+   quietly becomes zero.
+3. **Planned time is not time worked.** Estimate-minutes are what you
+   thought it would take. Nothing here claims to know how long anything
+   actually took.
+4. **It ends with one thing to look at.** If a report can't name a single
+   concrete change, it's a dashboard.
+
+`--section NAME` prints one section in full instead of the summary
+(repeatable). Sections: `capacity`, `throughput`, `flow`, `lead_time`,
+`follow_through`.
+
+`--format` renders the same internal model four ways: `terminal`
+(default), `markdown` (durable weekly notes), `json` (the escape hatch —
+charts, notebooks, or anything else, without any of that becoming the
+scheduler's problem), and `html`. The HTML report is a single
+self-contained file with inline SVG charts, light and dark, no
+JavaScript, and no network access at all — your task titles never leave
+the machine.
+
+Bare `task-gcal` is unaffected by any of this: none of the review code is
+even imported unless you run `review`.
+
 ## The observation journal
 
 Almost every interesting question about your own behaviour — did that

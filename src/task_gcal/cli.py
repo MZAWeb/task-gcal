@@ -2,6 +2,11 @@
 
 Bare `task-gcal` means `task-gcal schedule`, and every flag that predates
 the subcommands keeps working unchanged — see `_normalize_argv`.
+
+Only the scheduling path is imported at module level. Everything analytical is
+imported inside its handler, so bare `task-gcal` never loads reporting code it
+isn't going to run — the fast action path stays fast, and stays fast as the
+review side grows. `test_cli.py` asserts it.
 """
 
 from __future__ import annotations
@@ -15,7 +20,6 @@ from typing import Optional
 from googleapiclient.errors import HttpError
 
 from . import __version__
-from .backfill import DEFAULT_BACKFILL_DAYS, backfill
 from .config import (
     VISIBILITY_CHOICES,
     apply_overrides,
@@ -25,7 +29,22 @@ from .config import (
 )
 from .gcal import GCal
 from .schedule import reconcile
-from .snapshot import snapshot
+
+# Mirrors `backfill.DEFAULT_BACKFILL_DAYS`, duplicated only so building the
+# parser doesn't drag the importer in. Kept honest by a test.
+DEFAULT_BACKFILL_DAYS = 90
+
+# Review section names, for `--section`. Also duplicated to keep the review
+# package out of a bare run, and also checked by a test.
+_SECTION_CHOICES = (
+    "capacity",
+    "throughput",
+    "flow",
+    "lead_time",
+    "follow_through",
+)
+
+_FORMAT_CHOICES = ("terminal", "markdown", "json", "html")
 
 
 def _parse_work_days(raw: str) -> frozenset[int]:
@@ -229,7 +248,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Safe to run on a schedule; makes no calendar writes."
         ),
     )
-    snapshot_p.set_defaults(func=lambda _args, settings: snapshot(settings))
+    snapshot_p.set_defaults(func=_run_snapshot)
 
     backfill_p = sub.add_parser(
         "backfill",
@@ -249,10 +268,61 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     backfill_p.set_defaults(func=_run_backfill)
 
+    review_p = sub.add_parser(
+        "review",
+        parents=[overrides],
+        help="Report on a past week or month. Read-only.",
+        description=(
+            "Summarize a period in one screen. Reads Taskwarrior, the "
+            "calendar and the journal; writes to none of them."
+        ),
+    )
+    span = review_p.add_mutually_exclusive_group()
+    span.add_argument(
+        "--week", dest="kind", action="store_const", const="week",
+        help="Report on an ISO week, Monday start (the default).",
+    )
+    span.add_argument(
+        "--month", dest="kind", action="store_const", const="month",
+        help="Report on a calendar month.",
+    )
+    review_p.add_argument(
+        "--last", type=int, default=0, metavar="N",
+        help="Report N periods back instead of the current one; "
+             "--last 1 is the previous week or month.",
+    )
+    review_p.add_argument(
+        "--section", dest="sections", action="append", metavar="NAME",
+        choices=_SECTION_CHOICES,
+        help="Show one section in full instead of the summary. Repeatable. "
+             f"One of: {', '.join(_SECTION_CHOICES)}.",
+    )
+    review_p.add_argument(
+        "--format", dest="fmt", default="terminal", choices=_FORMAT_CHOICES,
+        help="Output format (default: terminal).",
+    )
+    review_p.add_argument(
+        "--output", "-o", metavar="PATH",
+        help="Write the report to a file instead of stdout.",
+    )
+    review_p.add_argument(
+        "--open", dest="open_in_browser", action="store_true",
+        help="Open the rendered report in a browser (implies a file).",
+    )
+    review_p.set_defaults(func=_run_review, kind="week")
+
     return parser
 
 
+def _run_snapshot(_args, settings) -> int:
+    from .snapshot import snapshot
+
+    return snapshot(settings)
+
+
 def _run_backfill(args, settings) -> int:
+    from .backfill import backfill
+
     since = None
     if args.since is not None:
         tz = settings.resolve_timezone()
@@ -261,8 +331,26 @@ def _run_backfill(args, settings) -> int:
     return code
 
 
+def _run_review(args, settings) -> int:
+    from pathlib import Path
+
+    from .review import ReviewRequest, run
+
+    return run(
+        settings,
+        ReviewRequest(
+            kind=args.kind,
+            offset=args.last,
+            sections=tuple(args.sections or ()),
+            fmt=args.fmt,
+            open_in_browser=args.open_in_browser,
+            output=Path(args.output) if args.output else None,
+        ),
+    )
+
+
 # Recognized subcommands, for `_normalize_argv`.
-_SUBCOMMANDS = ("schedule", "snapshot", "backfill")
+_SUBCOMMANDS = ("schedule", "snapshot", "backfill", "review")
 
 # Top-level flags that must not be swallowed by the implicit `schedule`.
 _TOP_LEVEL_FLAGS = ("-h", "--help", "--version")

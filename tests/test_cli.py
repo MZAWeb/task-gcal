@@ -167,6 +167,84 @@ def test_a_bad_since_date_is_a_usage_error(value):
 
 
 # ---------------------------------------------------------------------------
+# review
+# ---------------------------------------------------------------------------
+
+def review_args(*argv: str):
+    return cli_mod._build_parser().parse_args(["review", *argv])
+
+
+def test_review_defaults_to_the_current_week_in_the_terminal():
+    args = review_args()
+    assert (args.kind, args.last, args.fmt) == ("week", 0, "terminal")
+    assert args.sections is None
+
+
+def test_month_and_week_are_mutually_exclusive():
+    assert review_args("--month").kind == "month"
+    with pytest.raises(SystemExit):
+        review_args("--week", "--month")
+
+
+def test_sections_accumulate():
+    args = review_args("--section", "capacity", "--section", "flow")
+    assert args.sections == ["capacity", "flow"]
+
+
+def test_an_unknown_section_is_a_usage_error():
+    with pytest.raises(SystemExit):
+        review_args("--section", "vibes")
+
+
+def test_an_unknown_format_is_a_usage_error():
+    with pytest.raises(SystemExit):
+        review_args("--format", "pdf")
+
+
+def test_the_parsers_section_choices_match_the_registry():
+    # The names are duplicated in `cli.py` so that building the parser
+    # doesn't import the review package. That's only safe if they agree.
+    from task_gcal.review import section_keys
+
+    assert set(cli_mod._SECTION_CHOICES) == set(section_keys())
+
+
+def test_the_parsers_format_choices_match_the_renderers():
+    from task_gcal.review.render import FORMATS
+
+    assert set(cli_mod._FORMAT_CHOICES) == set(FORMATS)
+
+
+def test_the_default_backfill_window_matches_the_importer():
+    from task_gcal.backfill import DEFAULT_BACKFILL_DAYS
+
+    assert cli_mod.DEFAULT_BACKFILL_DAYS == DEFAULT_BACKFILL_DAYS
+
+
+# ---------------------------------------------------------------------------
+# The fast path stays fast
+# ---------------------------------------------------------------------------
+
+def test_scheduling_never_imports_the_review_code():
+    # "Bare `task-gcal` never loads historical analytics or reporting code."
+    # A stray module-level import in cli.py would break it silently, so the
+    # check is a subprocess with a clean interpreter.
+    import subprocess
+    import sys
+
+    probe = (
+        "import sys; import task_gcal.cli as cli;"
+        "cli._build_parser();"
+        "leaked=[m for m in sys.modules if m.startswith('task_gcal.review')];"
+        "print(leaked)"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+    assert out.stdout.strip() == "[]", out.stdout
+
+
+# ---------------------------------------------------------------------------
 # Hour validation
 # ---------------------------------------------------------------------------
 
