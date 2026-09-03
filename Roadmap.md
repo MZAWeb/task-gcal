@@ -245,11 +245,12 @@ end_hour   = 8
 days       = [0,1,2,3,4,5,6]
 ```
 
-**Two bugs block overnight lanes** (both found by the Phase 0 tests, both
-harmless under the default 9-18 window, see §6.1): a slot spanning a DST
-transition doesn't hold the right amount of real time, and `end_hour = 24`
-raises `ValueError`. A `[lanes.evening]` running to midnight, or anything
-crossing 01:00-02:00, needs both fixed first.
+**A lane ending at midnight now works** (`end_hour = 24` used to crash; fixed,
+see §6.1). Two limits remain for overnight work, both known and accepted:
+windows are built per calendar day, so **no session can cross midnight** — a
+23:00-01:00 block isn't expressible even with `end_hour = 24` — and a block
+spanning a DST transition gets the wrong amount of real time. Neither blocks an
+evening or early-morning lane; both block a genuinely nocturnal one.
 
 Back-compat: top-level `work_start_hour`/`work_end_hour`/`work_days` keep
 working and define the `work` lane. Every demand declares a lane; Taskwarrior
@@ -898,25 +899,40 @@ Checked, and worth recording because two of them shaped decisions above:
 
 ### 6.1 Findings from the Phase 0 test pass
 
-Three real defects surfaced while pinning current behavior. None is reachable
-with the default 9-18 working window, so all three are recorded rather than
-fixed — but the first two gate §1.3's lanes, which is the point of writing them
-down here instead of in a commit message.
+Three real defects surfaced while pinning current behavior. None was reachable
+with the default 9-18 working window; two are fixed and one is a deliberate
+non-goal.
 
-1. **Slot arithmetic is wall-clock, not elapsed time.** `slot_start +
-   timedelta(minutes=estimate)` on a zone-aware datetime advances the wall
-   clock, so a block spanning a DST transition doesn't contain `estimate`
-   minutes of real time: 6h becomes 5 real hours over spring-forward and 7 over
-   fall-back. An estimate is minutes of *work*, so the block should be the
-   requested elapsed time or not fit at all. Pinned by
-   `test_slot_length_is_wall_clock_not_elapsed_time`, with the intended
-   behaviour as an xfail.
-2. **`work_end_hour = 24` raises `ValueError`.** `--work-end` documents 0-24,
-   but `time(24, 0)` is invalid. Any lane ending at midnight hits this. xfailed.
-3. **A fractional estimate can round to a zero-minute block.**
-   `_coerce_estimate` rejects values `<= 0` before rounding, so `estimate:0.4`
-   survives as `0` and would produce a zero-length event. Harmless in practice
-   (nobody writes `0.4`), and cheapest to fix by rejecting a rounded zero.
+1. **Slot arithmetic is wall-clock, not elapsed time. — accepted, not fixing.**
+   `slot_start + timedelta(minutes=estimate)` on a zone-aware datetime advances
+   the wall clock, so a block spanning a DST transition doesn't contain
+   `estimate` minutes of real time: 6h becomes 5 real hours over spring-forward
+   and 7 over fall-back. Strictly wrong, since an estimate is minutes of *work*
+   — but it needs timezone surgery to fix and can only bite a block crossing
+   01:00-02:00 twice a year. Pinned by
+   `test_slot_length_is_wall_clock_not_elapsed_time` so the behavior is
+   deliberate rather than accidental, with the correct semantics left as a
+   strict xfail. Revisit only if a nocturnal lane ever ships.
+2. **`work_end_hour = 24` raised `ValueError`. — fixed.** It had two crash
+   sites, not one: `time(24, 0)` in `_work_windows` and `replace(hour=24)` in
+   `_effective_due`. Both now offset from midnight. Hours are also validated
+   where they enter, so an out-of-range value is a usage error, a message
+   naming `config.toml`, or a warn-and-fall-back per task — never a traceback.
+3. **A fractional estimate could round to a zero-minute block. — fixed.**
+   `_coerce_estimate` rejected values `<= 0` before rounding, so `estimate:0.4`
+   survived as `0`. It now rounds first; anything under a minute counts as
+   missing, which lands the task in the no-estimate list instead of on the
+   calendar as a zero-length event.
+
+Three rough edges left alone, recorded so they aren't rediscovered:
+
+- **`slot_align_minutes = 0` raises `ZeroDivisionError`** (`minute % 0`). Same
+  family as #2 — an unvalidated numeric setting reaching arithmetic.
+- **`work_end_hour <= work_start_hour` silently schedules nothing.** Every
+  window is empty, so every task reports "could not fit" with no hint that the
+  configuration is impossible. Wants the same validation pass.
+- **Windows can't span midnight** (see §1.3), because they're built per calendar
+  day. Relevant to lanes and to any late-evening fitness session.
 
 Also worth knowing, as a property rather than a defect: a scheduler-tagged
 event with **no** `taskUuid` is collected as an orphan when it's in the future.
