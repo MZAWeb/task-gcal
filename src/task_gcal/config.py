@@ -21,6 +21,7 @@ Example config.toml:
     overdue_horizon_days = 30
     lookback_days   = 7
     override_uda    = "gcal"            # task UDA holding per-task overrides
+    removal_guard_ratio = 0.5           # max share of our events one run may remove
 """
 
 from __future__ import annotations
@@ -83,6 +84,11 @@ class Settings:
     # How far in the past to look for our own previously-created events
     # when reconciling. Bounds the events.list query.
     lookback_days: int = 7
+    # Fraction of our own unfinished events a single run may remove before
+    # it refuses and asks for `--force`. Guards against one bad input
+    # (empty task source, wrong UDA name) turning a run into a mass
+    # deletion. 1.0 disables the guard.
+    removal_guard_ratio: float = 0.5
     # Taskwarrior UDA holding inline per-task overrides (see
     # `parse_task_overrides`).
     override_uda: str = "gcal"
@@ -130,6 +136,9 @@ def load_settings() -> Settings:
         ),
         lookback_days=int(get("lookback_days", defaults.lookback_days)),
         override_uda=str(get("override_uda", defaults.override_uda)),
+        removal_guard_ratio=float(
+            get("removal_guard_ratio", defaults.removal_guard_ratio)
+        ),
     )
 
 

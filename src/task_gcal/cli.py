@@ -75,6 +75,43 @@ def _effective_due(due: datetime, tz, settings: Settings) -> datetime:
     return due
 
 
+# Below this many removals a run is never blocked: clearing a couple of
+# finished or duplicated events is routine, and a fresh calendar shouldn't
+# need `--force` on its first cleanup.
+_REMOVAL_GUARD_FLOOR = 3
+
+
+def removal_guard_error(
+    *, removals: int, owned_unfinished: int, ratio: float
+) -> Optional[str]:
+    """Explain why a run should refuse to remove this many events, or None.
+
+    One bad input can make every task look unschedulable and turn a normal
+    run into a mass deletion: a task source that returns nothing (wrong
+    report name, an active Taskwarrior context, `TASKDATA` pointing at
+    another replica), or a mistyped `--estimate-uda` so no task has an
+    estimate. Removing a few of our events is routine; removing most of what
+    we own means the *input* is wrong, not the calendar.
+
+    `ratio` is the share of our unfinished events a run may remove; 1.0
+    disables the guard, since a run can never remove more than all of them.
+    """
+    if owned_unfinished <= 0 or removals < _REMOVAL_GUARD_FLOOR:
+        return None
+    if removals <= ratio * owned_unfinished:
+        return None
+    return (
+        f"refusing to remove {removals} of {owned_unfinished} unfinished "
+        f"events we own ({removals / owned_unfinished:.0%}; the guard trips "
+        f"above {ratio:.0%}).\n"
+        "  An unusually large cleanup usually means the input is wrong, not "
+        "the calendar.\n"
+        "  Check the report/UDA names above, then re-run with --force to "
+        "remove them anyway\n"
+        "  (or raise removal_guard_ratio in config.toml)."
+    )
+
+
 def _keeper_rank(ev: CalEvent, now: datetime) -> tuple[int, float]:
     """Sort key for picking a task's keeper event (lower is better).
 
@@ -94,7 +131,9 @@ def _keeper_rank(ev: CalEvent, now: datetime) -> tuple[int, float]:
 # Main reconcile
 # ---------------------------------------------------------------------------
 
-def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
+def reconcile(
+    settings: Settings, *, dry_run: bool = False, force: bool = False
+) -> int:
     tz = settings.resolve_timezone()
     now = datetime.now(timezone.utc)
 
@@ -159,17 +198,50 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
         if cur is None or _keeper_rank(ev, now) < _keeper_rank(cur, now):
             keepers[ev.task_uuid] = ev
 
+    # Everything we could still remove. Also the denominator for the
+    # bulk-removal guard: finished events are history and never touched.
+    owned_unfinished = sum(1 for ev in existing if ev.end > now)
+
+    # A source that returns nothing is indistinguishable from "you finished
+    # everything" — except that the second case is rare and the first has
+    # several silent causes. Bail before mutating anything.
+    if not tasks and owned_unfinished and not force:
+        print(
+            f"`task export {settings.report}` returned no tasks, but "
+            f"{owned_unfinished} unfinished event(s) on "
+            f"{settings.calendar_id} are ours.\n"
+            "Refusing to clear them. An empty task list is usually a wrong "
+            "report name, an active\nTaskwarrior context, or TASKDATA "
+            "pointing at another replica — not an empty backlog.\n"
+            "Re-run with --force if the list really is empty.",
+            file=sys.stderr,
+        )
+        return 1
+
     # Progress is only useful for the slow, network-bound real run on a TTY.
     show_progress = not dry_run
     active_progress: Optional[Progress] = None
 
-    # ---------------- Step 1: orphan + duplicate cleanup ----------------
+    # ---------------- Step 1: plan orphan + duplicate cleanup ------------
     removed_orphans: list[str] = []
     removed_duplicates: list[str] = []
 
-    def _delete(ev: CalEvent, bucket: list[str], tag: str = "") -> None:
+    # Removals are planned here and executed at the very end, so the guard
+    # sees the whole plan before anything is deleted (a broken input shows up
+    # as a large cleanup, and later steps add to it). Deferring is safe:
+    # `list_busy_events` excludes every event we own regardless of whether
+    # it has been deleted yet, so placement is unaffected.
+    planned_removals: list[tuple[CalEvent, list[str], str]] = []
+
+    def _plan_delete(ev: CalEvent, bucket: list[str], tag: str = "") -> None:
+        planned_removals.append((ev, bucket, tag))
+
+    def _label(ev: CalEvent, tag: str) -> str:
         ref = f"{ev.task_uuid[:8]} " if ev.task_uuid else ""
-        label = f"{tag}{ref}{ev.summary or ev.id}"
+        return f"{tag}{ref}{ev.summary or ev.id}"
+
+    def _delete(ev: CalEvent, bucket: list[str], tag: str = "") -> None:
+        label = _label(ev, tag)
         if not dry_run:
             try:
                 gcal.delete_event(ev.id)
@@ -180,22 +252,17 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
                 active_progress.advance((ev.summary or ev.id)[:48])
         bucket.append(label)
 
-    cleanup_prog = Progress(label="Cleaning up calendar…", enabled=show_progress)
-    active_progress = cleanup_prog
-    cleanup_prog.render()
     for ev in existing:
         # Future events whose task is no longer in `next` -> delete.
         if ev.task_uuid not in next_uuids:
             if ev.start > now:
-                _delete(ev, removed_orphans)
+                _plan_delete(ev, removed_orphans)
             continue
         # Duplicates beyond the keeper that haven't finished yet -> delete.
         # This includes ones overlapping now: only the keeper is protected
         # from removal mid-event, so spurious in-progress copies still go.
         if ev.id != keepers[ev.task_uuid].id and ev.end > now:
-            _delete(ev, removed_duplicates, tag="(duplicate) ")
-    cleanup_prog.close()
-    active_progress = None
+            _plan_delete(ev, removed_duplicates, tag="(duplicate) ")
 
     # ---------------- Step 2: pull busy intervals ----------------------
     our_event_ids = {ev.id for ev in existing}
@@ -216,7 +283,7 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
     def _drop_existing_if_future(uuid: str, why: str) -> None:
         ev = keepers.get(uuid)
         if ev and ev.start > now:
-            _delete(ev, removed_stale, tag=f"({why}) ")
+            _plan_delete(ev, removed_stale, tag=f"({why}) ")
 
     tasks_sorted = sorted(tasks, key=lambda t: t.urgency, reverse=True)
 
@@ -402,6 +469,34 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
 
     sched_prog.close()
 
+    # ---------------- Step 4: execute the removal plan -------------------
+    guard_error = (
+        None
+        if force
+        else removal_guard_error(
+            removals=len(planned_removals),
+            owned_unfinished=owned_unfinished,
+            ratio=settings.removal_guard_ratio,
+        )
+    )
+    withheld: list[str] = []
+    if guard_error:
+        # Leave the removal buckets empty so the report can't claim we
+        # deleted anything; list what was held back instead.
+        withheld = [_label(ev, tag) for ev, _bucket, tag in planned_removals]
+    elif planned_removals:
+        cleanup_prog = Progress(
+            total=len(planned_removals),
+            label="Cleaning up calendar…",
+            enabled=show_progress,
+        )
+        active_progress = cleanup_prog
+        cleanup_prog.render()
+        for ev, bucket, tag in planned_removals:
+            _delete(ev, bucket, tag)
+        cleanup_prog.close()
+        active_progress = None
+
     _print_report(
         placed=placed,
         no_estimate=no_estimate,
@@ -410,10 +505,12 @@ def reconcile(settings: Settings, *, dry_run: bool = False) -> int:
         removed_orphans=removed_orphans,
         removed_duplicates=removed_duplicates,
         removed_stale=removed_stale,
+        withheld=withheld,
+        guard_error=guard_error,
         dry_run=dry_run,
         tz=tz,
     )
-    return 0
+    return 1 if guard_error else 0
 
 
 # ---------------------------------------------------------------------------
@@ -443,6 +540,8 @@ def _print_report(
     removed_orphans,
     removed_duplicates,
     removed_stale,
+    withheld,
+    guard_error,
     dry_run: bool,
     tz: tzinfo,
 ) -> None:
@@ -522,8 +621,17 @@ def _print_report(
         or no_estimate
         or no_due
         or unschedulable
+        or withheld
     ):
         print("Nothing to do.")
+
+    # Second-to-last: the guard tripping means this run did *not* finish the
+    # job, which matters more than any individual line above it.
+    if guard_error:
+        print(f"Bulk-removal guard: {guard_error}")
+        print(f"\nHeld back ({len(withheld)}):")
+        for s in withheld:
+            print(f"  - {s}")
 
     # Printed last, on purpose: a missed deadline is the one thing you
     # most want to notice, and the bottom of the output is what stays on
@@ -577,6 +685,7 @@ _OVERRIDE_DESTS = (
     "overdue_horizon_days",
     "lookback_days",
     "override_uda",
+    "removal_guard_ratio",
 )
 
 
@@ -596,6 +705,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Show what would happen without modifying the calendar.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass the bulk-removal guard (see --removal-guard-ratio).",
     )
 
     g = parser.add_argument_group(
@@ -665,6 +779,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--lookback-days", dest="lookback_days", type=int, metavar="DAYS",
         help="How far back to scan for our own past events (default: 7).",
     )
+    g.add_argument(
+        "--removal-guard-ratio", dest="removal_guard_ratio", type=float,
+        metavar="RATIO",
+        help="Refuse to remove more than this share of our own unfinished "
+             "events in one run; 1.0 disables (default: 0.5).",
+    )
     return parser
 
 
@@ -681,7 +801,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
 
     try:
-        return reconcile(settings, dry_run=args.dry_run)
+        return reconcile(settings, dry_run=args.dry_run, force=args.force)
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return 130

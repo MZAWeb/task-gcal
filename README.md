@@ -40,6 +40,21 @@ On every manual run:
 The tool is idempotent: re-running with no input changes results in no
 calendar mutations.
 
+### The bulk-removal guard
+
+Every removal above is driven by what Taskwarrior reports, so one bad input
+can turn a routine run into a mass deletion: a mistyped `--estimate-uda`
+makes every task look estimate-less, and an empty `task export` (wrong report
+name, an active Taskwarrior context, `TASKDATA` pointing at another replica —
+say from a cron job with a different environment) looks exactly like "you
+finished everything".
+
+So a run refuses to remove more than `removal_guard_ratio` (default half) of
+the unfinished events it owns, and refuses outright to clear anything when the
+task list came back empty. It reports what it held back and exits non-zero,
+having still created and updated everything else. `--force` overrides it;
+`removal_guard_ratio = 1.0` disables it.
+
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) (it manages the Python toolchain and
@@ -118,6 +133,7 @@ report              = "next"
 timezone            = "Europe/London"   # omit to use the system local zone
 overdue_horizon_days = 30          # how far ahead overdue tasks may land
 lookback_days       = 7            # how far back to scan for our own events
+removal_guard_ratio = 0.5          # max share of our events one run may remove
 ```
 
 Every one of these keys can also be overridden per-run with a matching
