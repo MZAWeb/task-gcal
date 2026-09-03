@@ -224,6 +224,19 @@ The suite uses no network and no Taskwarrior: the calendar, the `task export`
 subprocess, and the clock are all faked (see `tests/conftest.py`). Tests always
 set `timezone` explicitly, so nothing depends on the machine's local zone.
 
+If you check the suite by mutating the source (breaking something on purpose to
+confirm a test notices), disable bytecode caching:
+
+```
+find src -name __pycache__ -exec rm -rf {} +
+PYTHONDONTWRITEBYTECODE=1 uv run pytest
+```
+
+A mutation that doesn't change a file's *length* — `23` to `25`, say — can be
+reverted within the same filesystem second, and CPython's `(mtime, size)`
+staleness check will then happily reuse the mutant's bytecode. That mis-scores
+the run in both directions.
+
 Most of it is characterization tests for the subtle scheduling rules —
 in-progress pinning, the overdue horizon, duplicate cleanup,
 `scheduled`/`wait` floors, the midnight-due bump — which exist so a refactor

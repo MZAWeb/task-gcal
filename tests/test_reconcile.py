@@ -8,17 +8,21 @@ bump — so a refactor can't quietly undo one. They assert semantic outcomes
 `NOW` is Monday 2026-09-07 09:00 UTC, the first minute of a default working
 day, and tests schedule in UTC so nothing depends on the machine's zone.
 
-Two pieces of the implementation are deliberately not covered, because no test
-can distinguish them — they're redundant safety nets rather than behavior:
+Three pieces of the implementation are deliberately not covered, because no
+test can distinguish them — they're redundant safety nets or alternative
+spellings rather than behavior:
 
 - `_keeper_rank`'s in-progress tier. An in-progress event always has a smaller
   `start` than an upcoming one, so the plain earliest-first ordering already
   puts it first; the explicit tier only documents the intent.
 - the `slot_end <= deadline` term in `find_earliest_slot`. `_work_windows`
   already clips every window to the deadline, so the term can never fire.
+- `day_start` built as `midnight + timedelta(hours=...)` rather than
+  `time(hour)`. The two are identical for 0-23, which is all a *start* hour may
+  be; only `day_end` needs the offset form, to express hour 24.
 
-Both are worth keeping and worth knowing about: if a mutation run reports them
-as surviving, that's expected, not a gap.
+All three are worth keeping and worth knowing about: if a mutation run reports
+them as surviving, that's expected, not a gap.
 """
 
 from __future__ import annotations

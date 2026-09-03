@@ -831,7 +831,7 @@ Ordered by dependency and by how soon each pays off.
 | Phase | What | Depends on | Payoff |
 | --- | --- | --- | --- |
 | **✓** | Bulk-removal guard (§0) | — | Shipped; a bad input can no longer clear the calendar |
-| **✓** | Test battery: 224 tests, no production changes, 23 of 25 mutants caught (§1.7, §6.1) | — | Shipped; the subtle rules are now pinned |
+| **✓** | Test battery: 269 tests, 28 of 31 mutants caught (§1.7, §6.1) | — | Shipped; the subtle rules are now pinned |
 | **0** | Extract only the seams Phase 1 needs | ✓ | Refactoring safety without a big-bang rewrite |
 | **0.5** | **Schedule stability** (§1.8): keep valid placements inside `settle_days` | 0 | The calendar becomes a plan; makes follow-through measurable |
 | **1** | **Run journal** + `snapshot` + launchd cadence + `review --week` on data we already have (capacity, throughput, backlog flow, lead time, follow-through) | 0 | Immediate, and **starts the clock on history** |
@@ -845,7 +845,7 @@ Each phase ships as a usable vertical slice with an acceptance check:
 
 | Phase | Done when |
 | --- | --- |
-| **0** | ✓ **Met.** The five subtle behaviours each fail a deliberately broken implementation, and `find_earliest_slot` is tested across both DST boundaries. Verified by mutation, not coverage: 25 deliberate breaks, 23 caught, the 2 survivors provably equivalent |
+| **0** | ✓ **Met.** The five subtle behaviours each fail a deliberately broken implementation, and `find_earliest_slot` is tested across both DST boundaries. Verified by mutation, not coverage: 31 deliberate breaks, 28 caught, the 3 survivors provably equivalent. Run mutations with `PYTHONDONTWRITEBYTECODE=1` — a same-length mutant can otherwise be scored against stale bytecode |
 | **0.5** | Two consecutive runs with a cancelled meeting between them move nothing inside `settle_days`; an invalid placement still moves; `settle_days = 0` reproduces today's behaviour exactly |
 | **1** | The same review regenerates byte-identically from the same journal; a failed or interrupted append never affects the calendar; `snapshot` makes no mutating API call; a truncated last line and an unknown future field both parse; every number prints its coverage |
 | **2** | A 3×/week template places exactly 3 sessions, respects spacing, produces no duplicates across repeated runs, adopts nothing it doesn't own, survives a failed source without deleting a single event, and reports an unplaceable session instead of silently dropping it |
