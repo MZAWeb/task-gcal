@@ -23,22 +23,43 @@ KEY = "throughput"
 _TOP_PROJECTS = 5
 
 
+def _previous(facts) -> tuple[int, str]:
+    """Completions in the comparable stretch of the previous period.
+
+    A period in progress is only part-way through, so comparing it against a
+    whole previous one prints a deficit that is just the calendar: running
+    the default review on a Tuesday would report `-9 vs previous week`. The
+    previous period is truncated to the same elapsed span instead, which
+    `Period` already goes to some trouble to avoid elsewhere.
+    """
+    previous = facts.period.shifted(-1)
+    cutoff = previous.end
+    label = f"previous {facts.period.kind}"
+    if facts.period.in_progress:
+        elapsed = facts.period.end - facts.period.start
+        cutoff = min(previous.start + elapsed, previous.end)
+        label = f"same point last {facts.period.kind}"
+    count = sum(
+        1
+        for t in facts.tasks
+        if t.status == "completed"
+        and t.end is not None
+        and previous.start <= t.end < cutoff
+    )
+    return count, label
+
+
 def build(facts) -> Section:
     completed = facts.completed_in_period()
     with_estimate = [t for t in completed if t.estimate_minutes is not None]
     planned = sum(t.estimate_minutes for t in with_estimate)
 
-    previous = facts.period.shifted(-1)
-    previous_count = sum(
-        1
-        for t in facts.tasks
-        if t.status == "completed" and previous.contains(t.end)
-    )
+    previous_count, comparison = _previous(facts)
 
     summary = f"{len(completed)} tasks · {humanize_minutes(planned)} planned"
     if previous_count:
         change = len(completed) - previous_count
-        summary += f" · {change:+d} vs previous {facts.period.kind}"
+        summary += f" · {change:+d} vs {comparison}"
 
     by_project = Counter(t.project or "(no project)" for t in completed)
     recurring = sum(1 for t in completed if t.is_recurring)
@@ -46,7 +67,7 @@ def build(facts) -> Section:
         f"Completed         {len(completed)} task(s)",
         f"Planned minutes   {humanize_minutes(planned)} "
         "(estimates, not time spent)",
-        f"Previous {facts.period.kind:<8} {previous_count} task(s)",
+        f"Versus {comparison[:11]:<11} {previous_count} task(s)",
     ]
     if recurring:
         # A recurring chore ticked off is real work, but a count made mostly

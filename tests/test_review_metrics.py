@@ -86,22 +86,49 @@ def test_a_meeting_heavy_week_becomes_the_closing_suggestion(review):
 
 
 def test_overplanning_outranks_a_meeting_heavy_week(review):
-    # Both findings are true here — 57% meetings, and 20h planned into the
-    # 18h that were left. The tasks are completed so follow-through stays
-    # quiet, leaving the two capacity findings to be arbitrated by weight
-    # rather than by which branch ran first.
+    # Both findings are true here — 57% meetings, and the whole working day
+    # blocked out on top of them. The tasks are completed so follow-through
+    # stays quiet, leaving the two capacity findings to be arbitrated by
+    # weight rather than by which branch ran first.
     review.meetings(*[(at(day, 9), at(day, 15)) for day in range(4)])
     review.tasks(
         *[
-            a_task(uuid=f"u{d}", status="completed", end=at(d, 15, 30))
+            a_task(uuid=f"u{d}", status="completed", end=at(d, 17, 30))
             for d in range(4)
         ]
     )
-    review.blocks(*[a_block(f"u{d}", at(d, 15), 300) for d in range(4)])
+    review.blocks(*[a_block(f"u{d}", at(d, 9), 9 * 60) for d in range(4)])
 
     section = data(review, capacity.KEY)
     assert len(section.suggestions) == 2
     assert "planned" in review.review().adjustment
+
+
+def test_buying_an_evening_is_not_reported_as_overcommitting_the_day(review):
+    # Working-hours time is the denominator, and an evening block was never
+    # competing for it. Time claimed outside hours is boundary erosion's
+    # finding, not capacity's.
+    review.meetings(*[(at(day, 9), at(day, 17)) for day in range(5)])
+    review.tasks(
+        *[
+            a_task(uuid=f"u{d}", status="completed", end=at(d, 20, 30))
+            for d in range(4)
+        ]
+    )
+    review.blocks(*[a_block(f"u{d}", at(d, 18), 180) for d in range(4)])
+
+    section = data(review, capacity.KEY)
+    assert section.data["planned_in_hours_minutes"] == 0
+    assert not any("planned" in s.text for s in section.suggestions)
+
+
+def test_the_planned_share_never_exceeds_what_was_left(review):
+    review.meetings(*[(at(day, 9), at(day, 17)) for day in range(5)])
+    review.blocks(*[a_block(f"u{d}", at(d, 18), 180) for d in range(4)])
+
+    detail = "\n".join(data(review, capacity.KEY).detail)
+    assert "0% of what was left" in detail
+    assert "12h outside hours" in detail
 
 
 def test_capacity_reports_days_observed(review):
@@ -158,7 +185,35 @@ def test_throughput_compares_with_the_previous_period(review):
     section = data(review, throughput.KEY)
 
     assert section.data["previous_completed"] == 2
-    assert "-1 vs previous week" in section.summary
+    assert "-1 vs same point last week" in section.summary
+
+
+def test_a_part_finished_week_is_compared_with_the_same_stretch(review):
+    # The fixture reviews up to Friday afternoon. Comparing that against a
+    # whole previous week reports a deficit that is just the calendar.
+    review.tasks(
+        a_task(uuid="a", status="completed", end=at(0, 11)),
+        a_task(uuid="then", status="completed", end=at(-7, 11)),
+        # Previous Saturday: real, but past the point this week has reached.
+        a_task(uuid="weekend", status="completed", end=at(-2, 11)),
+    )
+    section = data(review, throughput.KEY)
+
+    assert section.data["previous_completed"] == 1
+    assert "same point last week" in section.summary
+
+
+def test_a_finished_period_is_compared_with_the_whole_previous_one(review):
+    review.offset = 1
+    review.tasks(
+        a_task(uuid="a", status="completed", end=at(-7, 11)),
+        a_task(uuid="b", status="completed", end=at(-13, 11)),
+        a_task(uuid="c", status="completed", end=at(-9, 11)),
+    )
+    section = data(review, throughput.KEY)
+
+    assert section.data["previous_completed"] == 2
+    assert "vs previous week" in section.summary
 
 
 def test_throughput_breaks_down_by_project(review):

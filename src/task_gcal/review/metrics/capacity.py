@@ -68,9 +68,15 @@ def build(facts) -> Section:
         f"Meetings          {humanize_minutes(meeting_minutes)} "
         f"({share:.0%} of working hours)",
         f"Left to schedule  {humanize_minutes(schedulable)}",
+        # Compared with the in-hours part only: `schedulable` is
+        # working-hours time, and an evening block was never competing for
+        # it. The two together would print over 100% for someone who used a
+        # `work_end_hour` override without over-filling their working day.
         f"Blocks planned    {humanize_minutes(planned_minutes)}"
         + (
-            f" ({planned_minutes / schedulable:.0%} of what was left)"
+            f" ({planned_in_hours / schedulable:.0%} of what was left, "
+            f"{humanize_minutes(planned_minutes - planned_in_hours)} outside "
+            "hours)"
             if schedulable
             else ""
         ),
@@ -93,10 +99,13 @@ def build(facts) -> Section:
                 weight=2.0,
             )
         )
-    if schedulable and planned_minutes > schedulable:
+    # Judged on the in-hours part, so buying an evening deliberately isn't
+    # reported as over-committing the working day. Time claimed outside
+    # working hours is boundary erosion's finding, not this one's.
+    if schedulable and planned_in_hours > schedulable:
         suggestions.append(
             Suggestion(
-                f"You planned {humanize_minutes(planned_minutes)} into "
+                f"You planned {humanize_minutes(planned_in_hours)} into "
                 f"{humanize_minutes(schedulable)} of free working time.",
                 weight=2.5,
             )
