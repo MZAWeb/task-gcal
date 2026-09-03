@@ -1,4 +1,4 @@
-"""Turning a run's live state into a journal record.
+"""Turning state into a journal record.
 
 The one-way boundary that makes the journal safe lives here: this module
 knows how to *write* an observation and has no way to read one. Scheduling
@@ -32,25 +32,30 @@ DETAIL_OFF = "off"
 DETAIL_CHOICES = (DETAIL_FULL, DETAIL_MINIMAL, DETAIL_OFF)
 
 
-def _hash_description(text: str) -> str:
-    """A stable stand-in for a description we've been asked not to store.
+def detail_fields(
+    description: str, detail: str
+) -> tuple[Optional[str], Optional[str]]:
+    """`(description, description_hash)` at the configured detail level.
 
-    Enough to tell two tasks apart and to notice a title being rewritten,
-    which is all the churn metrics need; not enough to read.
+    The hash is a stable stand-in for a title we've been asked not to store:
+    enough to tell two tasks apart and to notice a retitle, which is all the
+    churn metrics need, and not enough to read.
     """
-    return hashlib.sha256(text.encode()).hexdigest()[:12]
+    if detail != DETAIL_MINIMAL:
+        return description, None
+    return None, hashlib.sha256(description.encode()).hexdigest()[:12]
 
 
 def observe_task(
     t: TaskInfo, *, block: Optional[ObservedBlock], detail: str
 ) -> TaskObservation:
     """One task's current state, at the configured level of detail."""
-    minimal = detail == DETAIL_MINIMAL
+    description, description_hash = detail_fields(t.description, detail)
     return TaskObservation(
         uuid=t.uuid,
         id=t.id,
-        description=None if minimal else t.description,
-        description_hash=_hash_description(t.description) if minimal else None,
+        description=description,
+        description_hash=description_hash,
         project=t.project,
         tags=tuple(t.tags),
         estimate_minutes=t.estimate_minutes,
@@ -66,17 +71,26 @@ def observe_task(
     )
 
 
+def observe_tasks(
+    tasks: list[TaskInfo],
+    *,
+    blocks: dict[str, ObservedBlock],
+    detail: str,
+) -> tuple[TaskObservation, ...]:
+    return tuple(
+        observe_task(t, block=blocks.get(t.uuid), detail=detail) for t in tasks
+    )
+
+
 def build_record(
     *,
     settings: Settings,
     mode: str,
     at: datetime,
-    tasks: list[TaskInfo],
-    blocks: dict[str, ObservedBlock],
+    observations: tuple[TaskObservation, ...],
     source_ok: bool = True,
 ) -> RunRecord:
-    """Assemble the record for one run. Pure — writes nothing."""
-    detail = settings.journal_detail
+    """Assemble the record for one observation. Pure — writes nothing."""
     return RunRecord(
         run_id=new_run_id(at),
         at=at,
@@ -85,10 +99,7 @@ def build_record(
         settings_hash=settings_hash(settings),
         calendar_id=settings.calendar_id,
         report=settings.report,
-        tasks=tuple(
-            observe_task(t, block=blocks.get(t.uuid), detail=detail)
-            for t in tasks
-        ),
+        tasks=observations,
         source_ok=source_ok,
         tool_version=__version__,
     )
@@ -103,11 +114,13 @@ def record_run(
     blocks: dict[str, ObservedBlock],
     source_ok: bool = True,
 ) -> bool:
-    """Append one observation, never letting the journal break the run.
+    """Append one live observation, never letting the journal break the run.
 
     Returns whether anything was written. A failed write warns and carries
     on: losing an observation costs history, but failing a calendar
-    reconcile because a disk filled up would cost you the calendar.
+    reconcile because a disk filled up would cost you the calendar. Backfill
+    deliberately does *not* go through here — writing is its whole job, so a
+    failure there is an error.
     """
     if settings.journal_detail == DETAIL_OFF:
         return False
@@ -115,8 +128,9 @@ def record_run(
         settings=settings,
         mode=mode,
         at=at,
-        tasks=tasks,
-        blocks=blocks,
+        observations=observe_tasks(
+            tasks, blocks=blocks, detail=settings.journal_detail
+        ),
         source_ok=source_ok,
     )
     try:

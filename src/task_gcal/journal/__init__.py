@@ -23,6 +23,8 @@ from .observe import (
     DETAIL_MINIMAL,
     DETAIL_OFF,
     build_record,
+    detail_fields,
+    observe_tasks,
     record_run,
 )
 from .paths import data_dir, run_file, runs_dir
@@ -67,9 +69,11 @@ __all__ = [
     "build_record",
     "data_dir",
     "definition_boundaries",
+    "detail_fields",
     "iter_observed_days",
     "latest_settings_hash",
     "load",
+    "observe_tasks",
     "record_run",
     "run_file",
     "run_files",

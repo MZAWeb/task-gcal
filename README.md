@@ -84,6 +84,88 @@ task list came back empty. It reports what it held back and exits non-zero,
 having still created and updated everything else. `--force` overrides it;
 `removal_guard_ratio = 1.0` disables it.
 
+## The observation journal
+
+Almost every interesting question about your own behaviour — did that
+deadline move? did the block survive? was the task still open the next
+day? — is a *diff between two observations*, and none of it is
+reconstructable after the fact. So every real run appends one record to
+an append-only journal:
+
+```
+~/.local/share/task-gcal/runs/2026-09.jsonl
+```
+
+(`$XDG_DATA_HOME` is honored; `TASK_GCAL_DATA_DIR` overrides both.)
+
+Three rules keep it honest:
+
+- **Scheduling only ever appends.** It never reads history to decide
+  where a block goes, so a corrupt or deleted journal cannot produce a
+  wrong calendar. Deleting it costs you history and nothing else.
+- **Nothing derived is stored.** No totals, no scores, no streaks —
+  reviews recompute everything from raw observations, so changing a
+  metric's definition can't leave numbers behind that meant something
+  else. Each record carries a schema version, a metrics-definition
+  version, and a hash of the settings that affect meaning, so a review
+  can refuse to draw a trend across a boundary rather than averaging two
+  different things.
+- **A dry run records nothing.** Its placements were never made.
+
+Files are mode 0600 in a 0700 directory and nothing leaves your machine,
+but task titles and deadlines are sensitive, so there's a dial:
+
+```toml
+journal_detail = "full"      # store descriptions (default)
+journal_detail = "minimal"   # store a 12-hex digest instead
+journal_detail = "off"       # record nothing at all
+```
+
+`minimal` still tells two tasks apart and still notices a retitle, which
+is all the churn metrics need. At roughly 20 tasks a few times a day the
+whole thing is single-digit megabytes a year, so there's no rotation, no
+pruning, and deliberately no database.
+
+### `task-gcal snapshot`
+
+How much the journal sees depends on how often it looks, so looking often
+is part of the design. `snapshot` appends one observation and touches
+nothing else — no calendar writes at all — which makes it safe to run on
+a timer:
+
+```bash
+task-gcal snapshot     # every few hours from cron or launchd
+```
+
+### `task-gcal backfill`
+
+Waiting weeks for the first useful review isn't necessary: Taskwarrior's
+own per-task modification log already holds recent due-date, estimate and
+scheduled-date changes. `backfill` reads it and reconstructs one daily
+observation per day of a past window:
+
+```bash
+task-gcal backfill                      # the last 90 days
+task-gcal backfill --since 2026-06-01
+```
+
+It is read-only with respect to Taskwarrior and the calendar, it never
+overwrites a day that was actually observed (so re-running it is safe and
+a real snapshot always wins), and it costs one `task info` subprocess per
+recent task — which is why it's a one-time import and not how reviews
+read history.
+
+Three limits, which every number derived from a backfilled day inherits:
+
+- **No calendar blocks.** Past events reveal only their *final* stored
+  times, not the moves made before they happened, so placement churn
+  starts accruing from the journal rather than being invented here.
+- **A field the log never mentions is assumed to have always held its
+  current value.** Inventing a change would be worse than assuming
+  stability.
+- **Timestamps come from a local-zone rendering with no offset**, so a
+  machine that has moved timezones is off by the difference.
+
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) (it manages the Python toolchain and
@@ -164,6 +246,7 @@ overdue_horizon_days = 30          # how far ahead overdue tasks may land
 lookback_days       = 7            # how far back to scan for our own events
 settle_days         = 2            # blocks this close stay put unless invalid
 removal_guard_ratio = 0.5          # max share of our events one run may remove
+journal_detail      = "full"       # full | minimal | off
 ```
 
 Every one of these keys can also be overridden per-run with a matching

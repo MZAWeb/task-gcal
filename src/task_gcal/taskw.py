@@ -108,38 +108,36 @@ def _parse_tw_datetime(raw: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def load_next_tasks(
-    report: str = "next", *, estimate_uda: str = "estimate",
-    override_uda: str = "gcal",
-) -> list[TaskInfo]:
-    """Load tasks from the given Taskwarrior report.
-
-    Order is whatever the report defines; the caller re-sorts by urgency
-    defensively.
-    """
+def _export(args: list[str], *, what: str) -> list[dict]:
+    """Run one `task ... export ...` and return its rows."""
     if shutil.which("task") is None:
         raise SystemExit(
             "`task` not found on PATH. Install Taskwarrior or adjust PATH."
         )
     try:
         proc = subprocess.run(
-            ["task", "rc.verbose=nothing", "rc.confirmation=no", "export", report],
+            ["task", "rc.verbose=nothing", "rc.confirmation=no", *args],
             check=True,
             capture_output=True,
             text=True,
         )
     except subprocess.CalledProcessError as e:
         msg = (e.stderr or e.stdout or "").strip()
-        raise SystemExit(f"`task export {report}` failed: {msg}") from None
+        raise SystemExit(f"`{what}` failed: {msg}") from None
 
     payload = proc.stdout.strip() or "[]"
     try:
         rows = json.loads(payload)
     except json.JSONDecodeError as e:
         raise SystemExit(
-            f"Could not parse `task export {report}` output as JSON: {e}"
+            f"Could not parse `{what}` output as JSON: {e}"
         ) from None
+    return rows
 
+
+def _to_tasks(
+    rows: list[dict], *, estimate_uda: str, override_uda: str
+) -> list[TaskInfo]:
     tasks: list[TaskInfo] = []
     for row in rows:
         uuid = row.get("uuid")
@@ -165,3 +163,32 @@ def load_next_tasks(
             )
         )
     return tasks
+
+
+def load_next_tasks(
+    report: str = "next", *, estimate_uda: str = "estimate",
+    override_uda: str = "gcal",
+) -> list[TaskInfo]:
+    """Load tasks from the given Taskwarrior report.
+
+    Order is whatever the report defines; the caller re-sorts by urgency
+    defensively.
+    """
+    rows = _export(["export", report], what=f"task export {report}")
+    return _to_tasks(rows, estimate_uda=estimate_uda, override_uda=override_uda)
+
+
+def load_all_tasks(
+    *, estimate_uda: str = "estimate", override_uda: str = "gcal"
+) -> list[TaskInfo]:
+    """Every task Taskwarrior knows about, completed and deleted included.
+
+    Reviews need the closed ones — throughput, lead time and backlog flow
+    are all about tasks that left the list — so this deliberately ignores
+    both the configured report and any active context. A context here would
+    silently narrow history to one project and make every count wrong.
+    """
+    rows = _export(
+        ["rc.context=none", "export"], what="task export (all tasks)"
+    )
+    return _to_tasks(rows, estimate_uda=estimate_uda, override_uda=override_uda)

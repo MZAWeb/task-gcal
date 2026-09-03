@@ -113,6 +113,59 @@ def test_every_subcommand_dispatches_to_a_handler():
         assert callable(args.func), name
 
 
+def test_every_subcommand_accepts_the_settings_overrides():
+    # A subcommand that silently ignored --timezone would read the journal in
+    # one zone and report in another.
+    for name in cli_mod._SUBCOMMANDS:
+        args = cli_mod._build_parser().parse_args([name, "--timezone", "UTC"])
+        assert args.timezone == "UTC", name
+
+
+def test_reoptimize_is_schedule_only():
+    assert parse("--reoptimize").reoptimize is True
+    with pytest.raises(SystemExit):
+        cli_mod._build_parser().parse_args(["snapshot", "--reoptimize"])
+
+
+def test_reoptimize_zeroes_the_settle_window(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        cli_mod, "reconcile",
+        lambda settings, **_kw: seen.setdefault("settle", settings.settle_days),
+    )
+    cli_mod._run_schedule(parse("--reoptimize"), Settings())
+    assert seen["settle"] == 0
+
+
+def test_without_reoptimize_the_settle_window_is_left_alone(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        cli_mod, "reconcile",
+        lambda settings, **_kw: seen.setdefault("settle", settings.settle_days),
+    )
+    cli_mod._run_schedule(parse(), Settings(settle_days=4))
+    assert seen["settle"] == 4
+
+
+# ---------------------------------------------------------------------------
+# backfill --since
+# ---------------------------------------------------------------------------
+
+def test_a_since_date_is_parsed():
+    args = cli_mod._build_parser().parse_args(["backfill", "--since", "2026-06-01"])
+    assert (args.since.year, args.since.month, args.since.day) == (2026, 6, 1)
+
+
+def test_since_defaults_to_unset():
+    assert cli_mod._build_parser().parse_args(["backfill"]).since is None
+
+
+@pytest.mark.parametrize("value", ["yesterday", "01-06-2026", "2026-13-01"])
+def test_a_bad_since_date_is_a_usage_error(value):
+    with pytest.raises(SystemExit):
+        cli_mod._build_parser().parse_args(["backfill", "--since", value])
+
+
 # ---------------------------------------------------------------------------
 # Hour validation
 # ---------------------------------------------------------------------------

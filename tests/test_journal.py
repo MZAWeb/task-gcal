@@ -48,6 +48,20 @@ def a_task(**kwargs) -> TaskInfo:
     return TaskInfo(**base)
 
 
+def a_record(*, tasks=None, blocks=None, settings=SETTINGS, mode=None, at=NOW):
+    """`build_record` with the observation step folded in, as callers do."""
+    return journal.build_record(
+        settings=settings,
+        mode=mode or journal.MODE_SCHEDULE,
+        at=at,
+        observations=journal.observe_tasks(
+            tasks if tasks is not None else [a_task()],
+            blocks=blocks or {},
+            detail=settings.journal_detail,
+        ),
+    )
+
+
 def write_lines(root, month: str, *lines: str) -> None:
     """Drop raw lines into a run file, bypassing the writer."""
     directory = root / "runs"
@@ -89,11 +103,7 @@ def test_the_run_file_is_named_by_utc_month():
 # ---------------------------------------------------------------------------
 
 def test_a_record_survives_a_round_trip():
-    record = journal.build_record(
-        settings=SETTINGS,
-        mode=journal.MODE_SCHEDULE,
-        at=NOW,
-        tasks=[a_task()],
+    record = a_record(
         blocks={
             "u1": journal.ObservedBlock(
                 start=at(0, 9), end=at(0, 10), action="create"
@@ -120,23 +130,13 @@ def test_a_record_survives_a_round_trip():
 def test_a_record_is_exactly_one_line():
     # A description with a newline in it would otherwise split one record
     # into two unparseable halves.
-    record = journal.build_record(
-        settings=SETTINGS,
-        mode=journal.MODE_SCHEDULE,
-        at=NOW,
-        tasks=[a_task(description="line one\nline two")],
-        blocks={},
-    )
+    record = a_record(tasks=[a_task(description="line one\nline two")])
     assert "\n" not in record.to_line()
 
 
 def test_absent_values_are_omitted_rather_than_stored_as_null():
-    record = journal.build_record(
-        settings=SETTINGS,
-        mode=journal.MODE_SNAPSHOT,
-        at=NOW,
-        tasks=[a_task(project=None, tags=[], scheduled=None, end=None)],
-        blocks={},
+    record = a_record(
+        tasks=[a_task(project=None, tags=[], scheduled=None, end=None)]
     )
     (raw,) = record.to_dict()["tasks"]
     assert "project" not in raw
@@ -149,13 +149,7 @@ def test_nothing_derived_is_stored():
     # The rule that keeps a definition change from leaving numbers behind
     # that meant something else. If a total or score ever appears here,
     # reviews stop being reproducible from raw observations.
-    record = journal.build_record(
-        settings=SETTINGS,
-        mode=journal.MODE_SCHEDULE,
-        at=NOW,
-        tasks=[a_task()],
-        blocks={},
-    )
+    record = a_record()
     keys = set(record.to_dict()) | set(record.to_dict()["tasks"][0])
     assert not {
         k for k in keys
@@ -168,11 +162,7 @@ def test_nothing_derived_is_stored():
 # ---------------------------------------------------------------------------
 
 def test_append_creates_a_private_file_in_a_private_directory(isolated_journal):
-    record = journal.build_record(
-        settings=SETTINGS, mode=journal.MODE_SNAPSHOT, at=NOW,
-        tasks=[a_task()], blocks={},
-    )
-    path = journal.append(record)
+    path = journal.append(a_record(mode=journal.MODE_SNAPSHOT))
 
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
@@ -180,24 +170,14 @@ def test_append_creates_a_private_file_in_a_private_directory(isolated_journal):
 
 def test_appends_accumulate_in_one_monthly_file(isolated_journal):
     for _ in range(3):
-        journal.append(
-            journal.build_record(
-                settings=SETTINGS, mode=journal.MODE_SNAPSHOT, at=NOW,
-                tasks=[a_task()], blocks={},
-            )
-        )
+        journal.append(a_record(mode=journal.MODE_SNAPSHOT))
     (path,) = list((isolated_journal / "runs").glob("*.jsonl"))
     assert len(path.read_text().splitlines()) == 3
 
 
 def test_records_from_different_months_go_to_different_files(isolated_journal):
     for when in (NOW, NOW + timedelta(days=40)):
-        journal.append(
-            journal.build_record(
-                settings=SETTINGS, mode=journal.MODE_SNAPSHOT, at=when,
-                tasks=[a_task()], blocks={},
-            )
-        )
+        journal.append(a_record(mode=journal.MODE_SNAPSHOT, at=when))
     names = sorted(p.name for p in (isolated_journal / "runs").glob("*.jsonl"))
     assert names == ["2026-09.jsonl", "2026-10.jsonl"]
 
@@ -207,12 +187,7 @@ def test_a_write_failure_is_reported_not_swallowed(isolated_journal):
     # A file where the runs directory should be: mkdir will fail.
     (isolated_journal / "runs").write_text("not a directory")
     with pytest.raises(store.JournalWriteError):
-        journal.append(
-            journal.build_record(
-                settings=SETTINGS, mode=journal.MODE_SNAPSHOT, at=NOW,
-                tasks=[a_task()], blocks={},
-            )
-        )
+        journal.append(a_record(mode=journal.MODE_SNAPSHOT))
 
 
 def test_record_run_never_raises_when_the_journal_is_broken(
@@ -238,11 +213,11 @@ def test_detail_off_writes_nothing(isolated_journal):
     assert not (isolated_journal / "runs").exists()
 
 
+MINIMAL = replace(SETTINGS, journal_detail=journal.DETAIL_MINIMAL)
+
+
 def test_minimal_detail_hashes_the_description(isolated_journal):
-    record = journal.build_record(
-        settings=replace(SETTINGS, journal_detail=journal.DETAIL_MINIMAL),
-        mode=journal.MODE_SCHEDULE, at=NOW, tasks=[a_task()], blocks={},
-    )
+    record = a_record(settings=MINIMAL)
     (raw,) = record.to_dict()["tasks"]
     assert "description" not in raw
     assert len(raw["description_hash"]) == 12
@@ -251,11 +226,10 @@ def test_minimal_detail_hashes_the_description(isolated_journal):
 
 def test_minimal_detail_still_notices_a_retitle():
     def digest(description):
-        return journal.build_record(
-            settings=replace(SETTINGS, journal_detail=journal.DETAIL_MINIMAL),
-            mode=journal.MODE_SCHEDULE, at=NOW,
-            tasks=[a_task(description=description)], blocks={},
-        ).tasks[0].description_hash
+        record = a_record(
+            settings=MINIMAL, tasks=[a_task(description=description)]
+        )
+        return record.tasks[0].description_hash
 
     assert digest("before") != digest("after")
     assert digest("same") == digest("same")
@@ -266,12 +240,8 @@ def test_minimal_detail_still_notices_a_retitle():
 # ---------------------------------------------------------------------------
 
 def append_at(when, **kwargs):
-    journal.append(
-        journal.build_record(
-            settings=SETTINGS, mode=kwargs.pop("mode", journal.MODE_SNAPSHOT),
-            at=when, tasks=[a_task(**kwargs)], blocks={},
-        )
-    )
+    mode = kwargs.pop("mode", journal.MODE_SNAPSHOT)
+    journal.append(a_record(mode=mode, at=when, tasks=[a_task(**kwargs)]))
 
 
 def test_load_returns_records_oldest_first(isolated_journal):

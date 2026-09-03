@@ -9,11 +9,13 @@ from __future__ import annotations
 import argparse
 import sys
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Optional
 
 from googleapiclient.errors import HttpError
 
 from . import __version__
+from .backfill import DEFAULT_BACKFILL_DAYS, backfill
 from .config import (
     VISIBILITY_CHOICES,
     apply_overrides,
@@ -32,6 +34,16 @@ def _parse_work_days(raw: str) -> frozenset[int]:
         return coerce_work_days(raw)
     except ValueError as e:
         raise argparse.ArgumentTypeError(str(e)) from None
+
+
+def _date_arg(raw: str) -> datetime:
+    """A naive `YYYY-MM-DD` at midnight; the caller attaches the timezone."""
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d")
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"expected a date as YYYY-MM-DD, got {raw!r}"
+        ) from None
 
 
 def _hour_arg(maximum: int):
@@ -219,11 +231,38 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     snapshot_p.set_defaults(func=lambda _args, settings: snapshot(settings))
 
+    backfill_p = sub.add_parser(
+        "backfill",
+        parents=[overrides],
+        help="Seed the journal from Taskwarrior's existing change history.",
+        description=(
+            "Reconstruct daily observations for a past window from "
+            "Taskwarrior's per-task modification log, so the first review "
+            "is useful immediately. Read-only with respect to Taskwarrior "
+            "and the calendar; never overwrites a day already observed."
+        ),
+    )
+    backfill_p.add_argument(
+        "--since", type=_date_arg, metavar="YYYY-MM-DD",
+        help=f"Earliest day to reconstruct (default: {DEFAULT_BACKFILL_DAYS} "
+             "days ago).",
+    )
+    backfill_p.set_defaults(func=_run_backfill)
+
     return parser
 
 
+def _run_backfill(args, settings) -> int:
+    since = None
+    if args.since is not None:
+        tz = settings.resolve_timezone()
+        since = args.since.replace(tzinfo=tz).astimezone(timezone.utc)
+    code, _summary = backfill(settings, since=since)
+    return code
+
+
 # Recognized subcommands, for `_normalize_argv`.
-_SUBCOMMANDS = ("schedule", "snapshot")
+_SUBCOMMANDS = ("schedule", "snapshot", "backfill")
 
 # Top-level flags that must not be swallowed by the implicit `schedule`.
 _TOP_LEVEL_FLAGS = ("-h", "--help", "--version")
