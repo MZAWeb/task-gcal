@@ -38,12 +38,12 @@ def _work_windows(
     last_day = end_local.date()
     while day <= last_day:
         if day.weekday() in settings.work_days:
-            day_start = datetime.combine(
-                day, time(settings.work_start_hour, 0), tzinfo=tz
-            )
-            day_end = datetime.combine(
-                day, time(settings.work_end_hour, 0), tzinfo=tz
-            )
+            # Offsets from midnight rather than `time(hour)`: `work_end_hour`
+            # is exclusive and may be 24 (midnight ending the day), which
+            # `time()` can't represent.
+            midnight = datetime.combine(day, time(0, 0), tzinfo=tz)
+            day_start = midnight + timedelta(hours=settings.work_start_hour)
+            day_end = midnight + timedelta(hours=settings.work_end_hour)
             ws = max(day_start, start_local)
             we = min(day_end, end_local)
             if ws < we:

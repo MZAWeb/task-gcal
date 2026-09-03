@@ -62,16 +62,23 @@ def test_unparseable_dates_become_none(raw):
         ("60", 60),
         (60.0, 60),
         (59.6, 60),   # rounded, not truncated
-        (0.4, 0),     # rounds to zero minutes but was a positive value
         (1, 1),
+        (1.4, 1),
     ],
 )
 def test_estimates_are_coerced_to_whole_minutes(raw, expected):
     assert taskw_mod._coerce_estimate(raw) == expected
 
 
-@pytest.mark.parametrize("raw", [None, "", 0, -5, "abc", "", [], {}])
+@pytest.mark.parametrize("raw", [None, "", 0, -5, "abc", [], {}])
 def test_absent_or_nonpositive_estimates_become_none(raw):
+    assert taskw_mod._coerce_estimate(raw) is None
+
+
+@pytest.mark.parametrize("raw", [0.4, "0.4", 0.2, 0.5])
+def test_an_estimate_that_rounds_to_zero_minutes_counts_as_missing(raw):
+    # Positive but under a minute: a zero-length calendar event would be worse
+    # than reporting the task as having no estimate.
     assert taskw_mod._coerce_estimate(raw) is None
 
 

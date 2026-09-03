@@ -373,13 +373,33 @@ def test_deadline_in_another_timezone_is_still_respected():
 
 
 # ---------------------------------------------------------------------------
-# Known gap
+# work_end_hour = 24
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    reason="--work-end 24 is documented as valid but time(24) raises ValueError",
-    strict=True,
-)
 def test_work_end_hour_24_means_midnight():
     slot = find(minutes=60, earliest=at(0, 22), deadline=at(1, 12), work_end_hour=24)
     assert slot == (at(0, 22), at(0, 23))
+
+
+def test_a_slot_can_run_up_to_midnight():
+    slot = find(minutes=60, earliest=at(0, 23), deadline=at(1, 12), work_end_hour=24)
+    assert slot == (at(0, 23), at(1, 0))
+
+
+def test_work_end_hour_24_does_not_bleed_into_the_next_day():
+    # The window ends *at* midnight, so a 90m task starting 23:00 doesn't run
+    # to 00:30 -- it waits for the next working window (09:00, not 00:00,
+    # because windows are built per calendar day).
+    slot = find(minutes=90, earliest=at(0, 23), deadline=at(2, 12), work_end_hour=24)
+    assert slot == (at(1, 9), at(1, 10, 30))
+
+
+def test_a_full_day_window_is_twenty_four_hours():
+    slot = find(
+        minutes=24 * 60,
+        earliest=at(0, 0),
+        deadline=at(1, 12),
+        work_start_hour=0,
+        work_end_hour=24,
+    )
+    assert slot == (at(0, 0), at(1, 0))

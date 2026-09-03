@@ -78,9 +78,13 @@ def _coerce_estimate(raw) -> Optional[int]:
         val = float(raw)
     except (TypeError, ValueError):
         return None
-    if val <= 0:
+    # Round before the sign check: a fractional estimate like 0.4 is positive
+    # but rounds to zero minutes, and a zero-length calendar event is worse
+    # than treating the estimate as missing.
+    minutes = int(round(val))
+    if minutes <= 0:
         return None
-    return int(round(val))
+    return minutes
 
 
 def _parse_tw_datetime(raw: Optional[str]) -> Optional[datetime]:

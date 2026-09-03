@@ -359,6 +359,56 @@ def test_a_date_only_due_can_still_be_scheduled_on_that_day(harness):
     assert harness.gcal.created[0]["start"] == at(1, 9)
 
 
+def test_a_midnight_due_survives_a_work_end_hour_of_24(harness):
+    # `_effective_due` used to build the end of day with replace(hour=...),
+    # which raises for hour=24.
+    harness.tasks(task_row(uuid="u1", due=at(1, 0), estimate=60))
+    res = harness.configure(work_end_hour=24).run()
+
+    assert res.code == 0
+    assert harness.gcal.created[0]["start"] == at(0, 9)
+
+
+def test_a_midnight_due_with_work_end_hour_24_means_the_whole_day(harness):
+    # Monday is booked solid to midnight, so this can only land on Tuesday --
+    # which is legal because `due:tuesday` now means "by the end of Tuesday".
+    harness.tasks(task_row(uuid="u1", due=at(1, 0), estimate=60))
+    harness.busy((at(0, 9), at(1, 0)))
+    harness.configure(work_end_hour=24).run()
+
+    assert harness.gcal.created[0]["start"] == at(1, 9)
+
+
+def test_a_per_task_work_end_hour_of_24_is_accepted(harness):
+    harness.tasks(
+        task_row(uuid="u1", due=at(1, 0), estimate=60, gcal="work_end_hour=24")
+    )
+    harness.busy((at(0, 9), at(0, 23)))
+    res = harness.run()
+
+    assert res.err == ""
+    assert harness.gcal.created[0]["start"] == at(0, 23)
+
+
+def test_a_per_task_hour_out_of_range_warns_instead_of_crashing(harness):
+    harness.tasks(
+        task_row(uuid="u1", id=42, due=WED_5PM, estimate=60, gcal="work_end_hour=25")
+    )
+    res = harness.run()
+
+    assert "#42" in res.err
+    assert "between 0 and 24" in res.err
+    assert harness.gcal.created[0]["start"] == at(0, 9)
+
+
+def test_an_estimate_under_a_minute_counts_as_missing(harness):
+    harness.tasks(task_row(uuid="u1", due=WED_5PM, estimate=0.4))
+    res = harness.run()
+
+    assert harness.gcal.created == []
+    assert len(res.section("Skipped: no `estimate`")) == 1
+
+
 def test_the_bump_respects_a_per_task_work_end_hour(harness):
     harness.tasks(
         task_row(uuid="u1", due=at(1, 0), estimate=60, gcal="work_end_hour=20")

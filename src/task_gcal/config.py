@@ -30,6 +30,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass, field, replace
+from functools import partial
 from pathlib import Path
 from typing import Optional
 
@@ -119,27 +120,37 @@ def load_settings() -> Settings:
     defaults = Settings()
     work_days_raw = get("work_days", list(defaults.work_days))
     timezone_raw = get("timezone", defaults.timezone)
-    return Settings(
-        work_start_hour=int(get("work_start_hour", defaults.work_start_hour)),
-        work_end_hour=int(get("work_end_hour", defaults.work_end_hour)),
-        work_days=frozenset(int(d) for d in work_days_raw),
-        slot_align_minutes=int(get("slot_align_minutes", defaults.slot_align_minutes)),
-        buffer_minutes=int(get("buffer_minutes", defaults.buffer_minutes)),
-        estimate_uda=str(get("estimate_uda", defaults.estimate_uda)),
-        calendar_id=str(get("calendar_id", defaults.calendar_id)),
-        event_color_id=str(get("event_color_id", defaults.event_color_id)),
-        event_visibility=str(get("event_visibility", defaults.event_visibility)),
-        report=str(get("report", defaults.report)),
-        timezone=str(timezone_raw) if timezone_raw else None,
-        overdue_horizon_days=int(
-            get("overdue_horizon_days", defaults.overdue_horizon_days)
-        ),
-        lookback_days=int(get("lookback_days", defaults.lookback_days)),
-        override_uda=str(get("override_uda", defaults.override_uda)),
-        removal_guard_ratio=float(
-            get("removal_guard_ratio", defaults.removal_guard_ratio)
-        ),
-    )
+    try:
+        return Settings(
+            work_start_hour=coerce_hour(
+                get("work_start_hour", defaults.work_start_hour)
+            ),
+            work_end_hour=coerce_hour(
+                get("work_end_hour", defaults.work_end_hour), maximum=24
+            ),
+            work_days=frozenset(int(d) for d in work_days_raw),
+            slot_align_minutes=int(
+                get("slot_align_minutes", defaults.slot_align_minutes)
+            ),
+            buffer_minutes=int(get("buffer_minutes", defaults.buffer_minutes)),
+            estimate_uda=str(get("estimate_uda", defaults.estimate_uda)),
+            calendar_id=str(get("calendar_id", defaults.calendar_id)),
+            event_color_id=str(get("event_color_id", defaults.event_color_id)),
+            event_visibility=str(get("event_visibility", defaults.event_visibility)),
+            report=str(get("report", defaults.report)),
+            timezone=str(timezone_raw) if timezone_raw else None,
+            overdue_horizon_days=int(
+                get("overdue_horizon_days", defaults.overdue_horizon_days)
+            ),
+            lookback_days=int(get("lookback_days", defaults.lookback_days)),
+            override_uda=str(get("override_uda", defaults.override_uda)),
+            removal_guard_ratio=float(
+                get("removal_guard_ratio", defaults.removal_guard_ratio)
+            ),
+        )
+    except ValueError as e:
+        # A bad value should name the file it came from, not raise a traceback.
+        raise SystemExit(f"Invalid setting in {USER_CONFIG_PATH}: {e}") from None
 
 
 def apply_overrides(settings: Settings, overrides: dict) -> Settings:
@@ -149,6 +160,19 @@ def apply_overrides(settings: Settings, overrides: dict) -> Settings:
     """
     filtered = {k: v for k, v in overrides.items() if v is not None}
     return replace(settings, **filtered) if filtered else settings
+
+
+def coerce_hour(raw, *, maximum: int = 23) -> int:
+    """Parse an hour-of-day, rejecting anything outside 0..maximum.
+
+    `work_end_hour` is exclusive, so its maximum is 24 (midnight ending the
+    day); a start hour can only be 0..23. Without this an out-of-range value
+    reaches `datetime` and surfaces as a bare traceback.
+    """
+    hour = int(raw)
+    if not 0 <= hour <= maximum:
+        raise ValueError(f"hour must be between 0 and {maximum}, got {hour}")
+    return hour
 
 
 def coerce_work_days(raw: str) -> frozenset[int]:
@@ -192,8 +216,8 @@ def coerce_attendees(raw: str) -> tuple[str, ...]:
 # coercer. Run-global keys (calendar_id, timezone, report, estimate_uda,
 # lookback_days, override_uda) are deliberately excluded.
 _TASK_OVERRIDE_COERCE = {
-    "work_start_hour": int,
-    "work_end_hour": int,
+    "work_start_hour": coerce_hour,
+    "work_end_hour": partial(coerce_hour, maximum=24),
     "work_days": coerce_work_days,
     "slot_align_minutes": int,
     "buffer_minutes": int,

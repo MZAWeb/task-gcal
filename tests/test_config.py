@@ -140,6 +140,69 @@ def test_apply_overrides_with_nothing_returns_the_same_object():
 
 
 # ---------------------------------------------------------------------------
+# coerce_hour
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("raw,expected", [("0", 0), ("9", 9), ("23", 23), (18, 18)])
+def test_hours_in_range_are_accepted(raw, expected):
+    assert config_mod.coerce_hour(raw) == expected
+
+
+def test_an_end_hour_may_be_24():
+    # Exclusive, so 24 means midnight ending the day.
+    assert config_mod.coerce_hour("24", maximum=24) == 24
+
+
+def test_a_start_hour_may_not_be_24():
+    with pytest.raises(ValueError, match="between 0 and 23"):
+        config_mod.coerce_hour("24")
+
+
+@pytest.mark.parametrize("raw", ["-1", "25", "99"])
+def test_hours_out_of_range_are_rejected(raw):
+    with pytest.raises(ValueError, match="between 0 and"):
+        config_mod.coerce_hour(raw, maximum=24)
+
+
+def test_a_non_numeric_hour_is_rejected():
+    with pytest.raises(ValueError):
+        config_mod.coerce_hour("nine")
+
+
+def test_config_file_accepts_an_end_hour_of_24(monkeypatch, tmp_path):
+    _write_config(monkeypatch, tmp_path, "work_end_hour = 24\n")
+    assert load_settings().work_end_hour == 24
+
+
+def test_a_bad_hour_in_the_config_file_names_the_file(monkeypatch, tmp_path):
+    path = _write_config(monkeypatch, tmp_path, "work_end_hour = 25\n")
+    with pytest.raises(SystemExit) as exc:
+        load_settings()
+    assert str(path) in str(exc.value)
+    assert "between 0 and 24" in str(exc.value)
+
+
+def test_a_non_numeric_setting_in_the_config_file_is_reported(monkeypatch, tmp_path):
+    _write_config(monkeypatch, tmp_path, 'work_start_hour = "nine"\n')
+    with pytest.raises(SystemExit, match="Invalid setting"):
+        load_settings()
+
+
+def test_a_per_task_end_hour_of_24_is_allowed():
+    assert parse_task_overrides("work_end_hour=24") == {"work_end_hour": 24}
+
+
+def test_a_per_task_hour_out_of_range_is_rejected():
+    with pytest.raises(ValueError, match="bad value for work_end_hour"):
+        parse_task_overrides("work_end_hour=25")
+
+
+def test_a_per_task_start_hour_of_24_is_rejected():
+    with pytest.raises(ValueError, match="bad value for work_start_hour"):
+        parse_task_overrides("work_start_hour=24")
+
+
+# ---------------------------------------------------------------------------
 # coerce_work_days
 # ---------------------------------------------------------------------------
 

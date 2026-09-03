@@ -14,6 +14,7 @@ from .config import (
     VISIBILITY_CHOICES,
     Settings,
     apply_overrides,
+    coerce_hour,
     coerce_work_days,
     load_settings,
     parse_task_overrides,
@@ -68,8 +69,10 @@ def _effective_due(due: datetime, tz, settings: Settings) -> datetime:
     """
     local = due.astimezone(tz)
     if local.hour == 0 and local.minute == 0 and local.second == 0:
-        end_of_day = local.replace(
-            hour=settings.work_end_hour, minute=0, second=0, microsecond=0
+        # Offset from the midnight we're already standing on: `work_end_hour`
+        # is exclusive and may be 24, which `replace(hour=...)` can't express.
+        end_of_day = local.replace(microsecond=0) + timedelta(
+            hours=settings.work_end_hour
         )
         return end_of_day.astimezone(timezone.utc)
     return due
@@ -667,6 +670,18 @@ def _parse_work_days(raw: str) -> frozenset[int]:
         raise argparse.ArgumentTypeError(str(e)) from None
 
 
+def _hour_arg(maximum: int):
+    """argparse adapter around `coerce_hour`, so a bad hour is a usage error."""
+
+    def parse(raw: str) -> int:
+        try:
+            return coerce_hour(raw, maximum=maximum)
+        except ValueError as e:
+            raise argparse.ArgumentTypeError(str(e)) from None
+
+    return parse
+
+
 # CLI flags that override config.toml / defaults. `dest` matches the
 # Settings field name so overrides can be applied generically. All default
 # to None so an unset flag leaves the config value untouched.
@@ -740,12 +755,13 @@ def _build_parser() -> argparse.ArgumentParser:
              "(default: system local zone).",
     )
     g.add_argument(
-        "--work-start", dest="work_start_hour", type=int, metavar="HOUR",
+        "--work-start", dest="work_start_hour", type=_hour_arg(23), metavar="HOUR",
         help="Working-hours start hour, 0-23 (default: 9).",
     )
     g.add_argument(
-        "--work-end", dest="work_end_hour", type=int, metavar="HOUR",
-        help="Working-hours end hour, exclusive, 0-24 (default: 18).",
+        "--work-end", dest="work_end_hour", type=_hour_arg(24), metavar="HOUR",
+        help="Working-hours end hour, exclusive, 0-24 where 24 is midnight "
+             "(default: 18).",
     )
     g.add_argument(
         "--work-days", dest="work_days", type=_parse_work_days, metavar="D,D,..",

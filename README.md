@@ -120,8 +120,8 @@ All defaults can be overridden in `~/.config/task-gcal/config.toml`
 (or `$TASK_GCAL_CONFIG_DIR/config.toml`). Every key is optional:
 
 ```toml
-work_start_hour     = 9            # inclusive
-work_end_hour       = 18           # exclusive
+work_start_hour     = 9            # inclusive, 0-23
+work_end_hour       = 18           # exclusive, 0-24 (24 = midnight)
 work_days           = [0, 1, 2, 3, 4]   # Mon..Fri (Mon=0)
 slot_align_minutes  = 15
 buffer_minutes      = 0            # free gap kept around every event
