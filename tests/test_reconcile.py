@@ -31,7 +31,7 @@ from datetime import timedelta
 
 import pytest
 
-from task_gcal import cli as cli_mod
+from task_gcal import schedule as schedule_mod
 from task_gcal.config import Settings
 
 from conftest import NOW, managed_event, task_row, utc
@@ -341,7 +341,7 @@ def test_effective_due_bumps_a_midnight_due_to_the_end_of_that_day():
     from zoneinfo import ZoneInfo
 
     tz = ZoneInfo("UTC")
-    got = cli_mod._effective_due(at(1, 0), tz, Settings(timezone="UTC"))
+    got = schedule_mod.effective_due(at(1, 0), tz, Settings(timezone="UTC"))
     assert got == at(1, 18)
 
 
@@ -349,7 +349,7 @@ def test_effective_due_leaves_an_explicit_time_alone():
     from zoneinfo import ZoneInfo
 
     tz = ZoneInfo("UTC")
-    got = cli_mod._effective_due(at(1, 14, 30), tz, Settings(timezone="UTC"))
+    got = schedule_mod.effective_due(at(1, 14, 30), tz, Settings(timezone="UTC"))
     assert got == at(1, 14, 30)
 
 

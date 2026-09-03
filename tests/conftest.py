@@ -14,7 +14,7 @@ from typing import Optional
 
 import pytest
 
-from task_gcal import cli as cli_mod
+from task_gcal import schedule as schedule_mod
 from task_gcal import taskw as taskw_mod
 from task_gcal.config import Settings
 from task_gcal.gcal import CalEvent
@@ -333,7 +333,7 @@ class Harness:
         return self
 
     def run(self, *, dry_run: bool = False, force: bool = False):
-        code = cli_mod.reconcile(self.settings, dry_run=dry_run, force=force)
+        code = schedule_mod.reconcile(self.settings, dry_run=dry_run, force=force)
         captured = self._capsys.readouterr()
         return RunResult(code=code, out=captured.out, err=captured.err)
 
@@ -366,8 +366,8 @@ def harness(monkeypatch, capsys) -> Harness:
 
     monkeypatch.setattr(taskw_mod.shutil, "which", lambda _name: "/usr/bin/task")
     monkeypatch.setattr(taskw_mod.subprocess, "run", tw.run)
-    monkeypatch.setattr(cli_mod, "GCal", lambda _settings: gcal)
-    monkeypatch.setattr(cli_mod, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(schedule_mod, "GCal", lambda _settings: gcal)
+    monkeypatch.setattr(schedule_mod, "datetime", _FrozenDatetime)
 
     return Harness(tw, gcal, capsys)
 

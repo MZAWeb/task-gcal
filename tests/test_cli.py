@@ -15,7 +15,10 @@ from task_gcal.config import Settings, apply_overrides
 
 
 def parse(*argv: str):
-    return cli_mod._build_parser().parse_args(list(argv))
+    """Parse as `main` does, implicit `schedule` subcommand included."""
+    return cli_mod._build_parser().parse_args(
+        cli_mod._normalize_argv(list(argv))
+    )
 
 
 def settings_from(*argv: str) -> Settings:
@@ -73,6 +76,41 @@ def test_dry_run_and_force_are_not_settings():
 def test_setup_is_a_flag():
     assert parse("--setup").setup is True
     assert parse().setup is False
+
+
+# ---------------------------------------------------------------------------
+# Subcommand dispatch
+# ---------------------------------------------------------------------------
+
+def test_bare_invocation_means_schedule():
+    assert cli_mod._normalize_argv([]) == ["schedule"]
+    assert parse().command == "schedule"
+
+
+def test_pre_subcommand_flag_spellings_still_work():
+    # These are how the tool was invoked before subcommands existed; the
+    # normalizer exists so they never became a usage error.
+    assert cli_mod._normalize_argv(["--dry-run"]) == ["schedule", "--dry-run"]
+    assert parse("--dry-run", "--work-end", "20").dry_run is True
+
+
+def test_an_explicit_subcommand_is_left_alone():
+    assert cli_mod._normalize_argv(["schedule", "--force"]) == [
+        "schedule", "--force"
+    ]
+
+
+@pytest.mark.parametrize("flag", ["-h", "--help", "--version"])
+def test_top_level_flags_are_not_swallowed(flag):
+    # Prepending `schedule` here would show the subcommand's help instead
+    # of the command list.
+    assert cli_mod._normalize_argv([flag]) == [flag]
+
+
+def test_every_subcommand_dispatches_to_a_handler():
+    for name in cli_mod._SUBCOMMANDS:
+        args = cli_mod._build_parser().parse_args([name])
+        assert callable(args.func), name
 
 
 # ---------------------------------------------------------------------------

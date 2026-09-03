@@ -138,7 +138,7 @@ removal_guard_ratio = 0.5          # max share of our events one run may remove
 
 Every one of these keys can also be overridden per-run with a matching
 CLI flag, which takes precedence over the config file (run `task-gcal
---help` for the full list). For example:
+schedule --help` for the full list). For example:
 
 ```bash
 # A one-off run on a work calendar, in London time, with a 15-minute

@@ -6,7 +6,7 @@ point of keeping it a free function.
 
 from __future__ import annotations
 
-from task_gcal.cli import removal_guard_error
+from task_gcal.schedule import removal_guard_error
 
 
 def test_small_cleanups_are_never_blocked():
