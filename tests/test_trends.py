@@ -96,6 +96,46 @@ def test_twelve_weeks_are_reported_oldest_first(review):
     assert points[-4].completed == 5
 
 
+def test_a_past_week_review_ends_its_trend_on_that_week(review):
+    # The period's end is exclusive, so naive `week_of(end)` lands a week
+    # late: it would drop the oldest week and add one outside the period.
+    review.offset = 1
+    points = trends.series(review.facts())
+    assert points[-1].label == review.period().label
+
+
+def test_a_past_month_review_does_not_end_on_a_week_outside_it(review):
+    # August's last day is a Monday, so the week containing it runs to 6 Sep.
+    # Ending the trend there would measure a week with real completions but
+    # no blocks and no pushes, reading as a productive week that was
+    # entirely missed.
+    monthly(review).offset = 1
+    period = review.period()
+    last = trends.series(review.facts())[-1]
+
+    assert period.label == "August 2026"
+    assert last.label == "Week 35"
+
+
+def test_an_in_progress_period_keeps_its_own_partial_week(review):
+    # It's partial by definition, and it's the week being reported on.
+    monthly(review)
+    points = trends.series(review.facts())
+    assert points[-1].label == "Week 37"
+    assert review.period().in_progress is True
+
+
+def test_a_finished_periods_trend_never_reaches_past_it(review):
+    # The invariant behind both cases above: blocks and journal records are
+    # only loaded up to the period's end, so a week extending past it would
+    # be scored with inputs that stop halfway through.
+    for kind, offset in (("week", 1), ("month", 1), ("week", 3), ("month", 2)):
+        review.kind, review.offset = kind, offset
+        period = review.period()
+        assert not period.in_progress, (kind, offset)
+        assert trends._anchor(period).end <= period.end, (kind, offset)
+
+
 def test_completions_land_in_the_right_week(review):
     monthly(review).tasks(*completions(1, 2), *completions(5, 7))
     by_label = {p.label: p.completed for p in trends.series(review.facts())}

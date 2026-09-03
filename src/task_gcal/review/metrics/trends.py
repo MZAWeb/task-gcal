@@ -19,6 +19,7 @@ and a trend nobody asked for isn't worth the round trips.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import Optional
 
 from ...intervals import humanize_minutes
@@ -225,16 +226,34 @@ def build(facts) -> Section:
     )
 
 
+def _anchor(period):
+    """The week the series ends on.
+
+    Two traps, both about the period's end being *exclusive*:
+
+    - `week_of(period.end.date())` lands a week late. Reviewing last week
+      would anchor on this one, dropping the oldest week and adding a week
+      that isn't in the period at all.
+    - A week running past the period would be measured with inputs that stop
+      at the period's end: real completions (Taskwarrior isn't date-bounded)
+      but no blocks and no observed pushes, so it reads as a productive week
+      with a follow-through of zero. Reviewing August must not end its trend
+      on the week of 31 Aug – 6 Sep.
+
+    The exception is a period still in progress: its own final week is
+    partial by definition, and that's the week being reported on.
+    """
+    last_instant = period.end - timedelta(microseconds=1)
+    anchor = week_of(last_instant.astimezone(period.tz).date(), period.tz)
+    if anchor.end > period.end and not period.in_progress:
+        anchor = anchor.shifted(-1)
+    return anchor
+
+
 def series(facts, *, weeks: Optional[int] = None) -> list[WeekPoint]:
     """The last `weeks` whole weeks ending with the period, oldest first."""
     weeks = WEEKS if weeks is None else weeks
-    tz = facts.period.tz
-    anchor = week_of(
-        (facts.period.end.astimezone(tz)).date(), tz
-    )
-    # A month review's anchor week may run past the month; walk back from the
-    # week containing the period's end either way, which keeps the two kinds
-    # of review reading the same series.
+    anchor = _anchor(facts.period)
     windows = [anchor.shifted(-(weeks - 1 - n)) for n in range(weeks)]
 
     timelines = build_timelines(facts.journal.records)
