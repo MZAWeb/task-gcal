@@ -24,24 +24,33 @@ def build(facts) -> Section:
         now=facts.now,
     )
     pending = sum(1 for t in facts.tasks if t.status == "pending")
+    recurring = sum(
+        1 for t in facts.tasks if t.status == "pending" and t.is_recurring
+    )
+    examined = Coverage(
+        label="pending tasks examined (recurring ones excluded)",
+        observed=pending - recurring,
+        total=pending,
+    )
 
     if not entries:
         return Section(
             key=KEY,
             label="Stagnation",
             summary="nothing has accumulated enough evidence against it",
-            coverage=(
-                Coverage(
-                    label="pending tasks examined", observed=pending, total=pending
-                ),
-            ),
-            data={"stagnant": 0},
+            coverage=(examined,),
+            data={"stagnant": 0, "recurring_excluded": recurring},
         )
 
     summary = f"{len(entries)} of {pending} open task(s) need a decision"
     detail = [f"  {entry.summary}" for entry in entries[:_TOP]]
     if len(entries) > _TOP:
         detail.append(f"  ... and {len(entries) - _TOP} more")
+    if recurring:
+        detail.append(
+            f"{recurring} recurring task(s) excluded: their dates are "
+            "generated, so staying open is what they're for."
+        )
     detail.append("`task-gcal review --triage` prints commands for each.")
 
     worst = entries[0]
@@ -60,14 +69,11 @@ def build(facts) -> Section:
         label="Stagnation",
         summary=summary,
         detail=tuple(detail),
-        coverage=(
-            Coverage(
-                label="pending tasks examined", observed=pending, total=pending
-            ),
-        ),
+        coverage=(examined,),
         data={
             "stagnant": len(entries),
             "pending": pending,
+            "recurring_excluded": recurring,
             "entries": [
                 {
                     "uuid": e.task.uuid,

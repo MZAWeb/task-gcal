@@ -57,6 +57,11 @@ def find(
     for task in tasks:
         if task.status != "pending":
             continue
+        # A recurring chore's dates are generated, and its perpetual
+        # openness is the feature. Attributing that to personal behaviour
+        # would fill the triage list with the things working correctly.
+        if task.is_recurring:
+            continue
         timeline = timelines.get(task.uuid)
         pushes = len(timeline.pushes()) if timeline else 0
         days_pushed = timeline.days_pushed if timeline else 0.0

@@ -130,6 +130,38 @@ class Facts:
             if r.mode == MODE_BACKFILL
         }
 
+    # ---------------------------- shared arithmetic -----------------------
+    # Capacity owns the *reporting* of these, but more than one metric needs
+    # the numbers, and two implementations of "how much of the week was
+    # meetings" would eventually disagree.
+
+    def work_windows(self) -> list[tuple[datetime, datetime]]:
+        from .periods import work_windows
+
+        return list(work_windows(self.period, self.settings))
+
+    def working_minutes(self) -> int:
+        from ..intervals import total_minutes
+
+        return total_minutes(self.work_windows())
+
+    def meetings_in_working_hours(self) -> list[tuple[datetime, datetime]]:
+        """Meeting time inside working hours, merged so it can be summed."""
+        from ..intervals import clip_to_windows
+
+        return clip_to_windows(self.meetings, self.work_windows())
+
+    def meeting_share(self) -> Optional[float]:
+        """Fraction of working hours spent in meetings, or None if unknown."""
+        if not self.calendar_ok:
+            return None
+        available = self.working_minutes()
+        if not available:
+            return None
+        from ..intervals import total_minutes
+
+        return total_minutes(self.meetings_in_working_hours()) / available
+
 
 def collect(
     settings: Settings,

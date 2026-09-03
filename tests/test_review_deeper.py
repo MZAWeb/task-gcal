@@ -570,3 +570,98 @@ def test_a_clean_backlog_is_reported_as_clean(review):
     section = data(review, stagnation_section.KEY)
     assert "nothing has accumulated" in section.summary
     assert section.suggestions == ()
+
+
+# ---------------------------------------------------------------------------
+# Source awareness: automated changes are not personal behaviour
+# ---------------------------------------------------------------------------
+
+def test_a_recurring_task_is_never_stagnant(review):
+    # A weekly chore that is perpetually open is doing exactly what it was
+    # set up to do. Counting it would fill triage with what's working.
+    review.tasks(a_task(uuid="a", recur="weekly"))
+    review.blocks(
+        a_block("a", at(0, 9), 60),
+        a_block("a", at(1, 9), 60),
+        a_block("a", at(2, 9), 60),
+    )
+    assert stagnant_for(review) == []
+
+
+def test_a_recurring_instance_is_recognized_by_its_parent(review):
+    review.tasks(a_task(uuid="a", parent="template-uuid"))
+    review.blocks(a_block("a", at(0, 9), 60), a_block("a", at(1, 9), 60))
+    assert stagnant_for(review) == []
+
+
+def test_the_stagnation_coverage_says_recurring_ones_were_excluded(review):
+    review.tasks(a_task(uuid="a", recur="weekly"), a_task(uuid="b"))
+    section = data(review, stagnation_section.KEY)
+    (coverage,) = section.coverage
+
+    assert (coverage.observed, coverage.total) == (1, 2)
+    assert "recurring ones excluded" in coverage.label
+
+
+def test_recurring_completions_are_reported_separately(review):
+    from task_gcal.review.metrics import throughput
+
+    review.tasks(
+        a_task(uuid="a", status="completed", end=at(0, 11), recur="weekly"),
+        a_task(uuid="b", status="completed", end=at(1, 11)),
+    )
+    section = data(review, throughput.KEY)
+
+    assert section.data["completed"] == 2
+    assert section.data["recurring"] == 1
+    assert "1 were recurring" in "\n".join(section.detail)
+
+
+def test_a_normal_task_is_not_treated_as_recurring(review):
+    review.tasks(a_task(uuid="a"))
+    review.blocks(a_block("a", at(0, 9), 60), a_block("a", at(1, 9), 60))
+    assert len(stagnant_for(review)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Pattern discovery
+# ---------------------------------------------------------------------------
+
+def test_patterns_cut_by_project_size_and_time_of_day(review, isolated_journal):
+    for i in range(8):
+        reflections.append(
+            a_reflection(
+                episode=f"a@{i}",
+                task_uuid="big",
+                reason="avoided",
+                covers_until=at(0, 20),  # an evening
+            )
+        )
+    review.tasks(a_task(uuid="big", project="fraud", estimate=240))
+
+    text = "\n".join(data(review, friction.KEY).detail)
+    assert "project      8 x avoided in fraud" in text
+    assert "task size    8 x avoided in large" in text
+    assert "time of day  8 x avoided in evening" in text
+
+
+def test_patterns_report_the_meeting_load_as_the_denominator(
+    review, isolated_journal
+):
+    for i in range(8):
+        reflections.append(a_reflection(episode=f"a@{i}", reason="capacity"))
+    review.tasks(a_task(uuid="a"))
+    review.meetings(*[(at(day, 9), at(day, 15)) for day in range(5)])
+
+    text = "\n".join(data(review, friction.KEY).detail)
+    assert "meeting load" in text
+    assert "denominator" in text
+
+
+def test_a_task_with_no_estimate_is_its_own_size_bucket(review, isolated_journal):
+    for i in range(8):
+        reflections.append(a_reflection(episode=f"a@{i}", reason="blocked"))
+    review.tasks(a_task(uuid="a", estimate=None))
+
+    text = "\n".join(data(review, friction.KEY).detail)
+    assert "no estimate" in text

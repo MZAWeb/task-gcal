@@ -436,6 +436,8 @@ def a_task(
     status: str = "pending",
     entry: Optional[datetime] = None,
     end: Optional[datetime] = None,
+    recur: Optional[str] = None,
+    parent: Optional[str] = None,
 ):
     """A `TaskInfo` as `load_all_tasks` would build it.
 
@@ -460,6 +462,8 @@ def a_task(
         status=status,
         entry=entry if entry is not None else NOW - timedelta(days=30),
         end=end,
+        recur=recur,
+        parent=parent,
     )
 
 

@@ -16,7 +16,6 @@ from ...intervals import (
     total_minutes,
 )
 from ..model import Coverage, Section, Suggestion
-from ..periods import work_windows
 
 KEY = "capacity"
 
@@ -26,8 +25,8 @@ _MEETING_HEAVY = 0.5
 
 
 def build(facts) -> Section:
-    windows = list(work_windows(facts.period, facts.settings))
-    available = total_minutes(windows)
+    windows = facts.work_windows()
+    available = facts.working_minutes()
 
     if not facts.calendar_ok:
         return Section(
@@ -42,7 +41,7 @@ def build(facts) -> Section:
     # Merged, so two people double-booking you cost one hour of capacity,
     # and clipped to the working windows, so a 22:00 call doesn't eat into a
     # denominator it was never part of.
-    meetings_in_hours = clip_to_windows(facts.meetings, windows)
+    meetings_in_hours = facts.meetings_in_working_hours()
     meeting_minutes = total_minutes(meetings_in_hours)
 
     ours = merge(

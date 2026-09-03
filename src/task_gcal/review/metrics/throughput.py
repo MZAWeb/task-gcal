@@ -41,12 +41,19 @@ def build(facts) -> Section:
         summary += f" · {change:+d} vs previous {facts.period.kind}"
 
     by_project = Counter(t.project or "(no project)" for t in completed)
+    recurring = sum(1 for t in completed if t.is_recurring)
     detail = [
         f"Completed         {len(completed)} task(s)",
         f"Planned minutes   {humanize_minutes(planned)} "
         "(estimates, not time spent)",
         f"Previous {facts.period.kind:<8} {previous_count} task(s)",
     ]
+    if recurring:
+        # A recurring chore ticked off is real work, but a count made mostly
+        # of them says something different from one made of new work.
+        detail.append(
+            f"Of those, {recurring} were recurring task(s)"
+        )
     if by_project:
         detail.append("By project:")
         for name, count in by_project.most_common(_TOP_PROJECTS):
@@ -83,6 +90,7 @@ def build(facts) -> Section:
             "completed": len(completed),
             "planned_minutes": planned,
             "previous_completed": previous_count,
+            "recurring": recurring,
             "with_estimate": len(with_estimate),
             "by_project": dict(by_project.most_common()),
         },

@@ -162,26 +162,81 @@ def _actual_time(answers, facts) -> list[str]:
     ]
 
 
+# Where "large" starts, for the size breakdown. Round, and named, because it
+# is a reporting bucket rather than a measurement.
+_LARGE_TASK_MINUTES = 120
+
+
+def _size_bucket(task) -> str:
+    if task is None or task.estimate_minutes is None:
+        return "no estimate"
+    return (
+        "large" if task.estimate_minutes >= _LARGE_TASK_MINUTES else "small"
+    )
+
+
+def _time_bucket(moment, tz) -> str:
+    hour = moment.astimezone(tz).hour
+    if hour < 12:
+        return "morning"
+    if hour < 17:
+        return "afternoon"
+    return "evening"
+
+
 def _patterns(misses, facts) -> list[str]:
-    """Correlations, gated on sample size and labelled as correlations."""
+    """Correlations, gated on sample size and labelled as correlations.
+
+    Four cuts, because each implies a different response: a project (the
+    commitment is wrong), task size (large ambiguous work needs
+    decomposition), time of day (the slot is wrong), and how busy the week
+    was (you planned more than the week had room for).
+
+    Presented as correlations rather than diagnoses, and only once there are
+    enough confirmed answers for a breakdown to mean anything — below that,
+    coverage is the finding.
+    """
     if len(misses) < _PATTERN_SAMPLE:
         return [
             f"Patterns           need {_PATTERN_SAMPLE} confirmed misses; "
             f"have {len(misses)}",
         ]
+
     tasks = facts.by_uuid()
-    by_project: Counter = Counter()
-    for reflection in misses:
-        task = tasks.get(reflection.task_uuid)
-        if task is not None and reflection.classified:
-            by_project[
-                (task.project or "(no project)", reflection.reason)
-            ] += 1
-    if not by_project:
+    tz = facts.period.tz
+    classified = [
+        (r, tasks.get(r.task_uuid)) for r in misses if r.classified
+    ]
+    if not classified:
         return []
+
+    cuts: dict[str, Counter] = {
+        "project": Counter(),
+        "task size": Counter(),
+        "time of day": Counter(),
+    }
+    for reflection, task in classified:
+        project = (task.project if task is not None else None) or "(no project)"
+        cuts["project"][(project, reflection.reason)] += 1
+        cuts["task size"][(_size_bucket(task), reflection.reason)] += 1
+        cuts["time of day"][
+            (_time_bucket(reflection.covers_until, tz), reflection.reason)
+        ] += 1
+
     out = ["Patterns (correlations, not diagnoses):"]
-    for (project, reason), count in by_project.most_common(5):
-        out.append(f"  {count:>3}  {reason} in {project}")
+    for label, tally in cuts.items():
+        (bucket, reason), count = tally.most_common(1)[0]
+        # Only worth a line if the leading combination is actually leading.
+        if count < 2:
+            continue
+        out.append(f"  {label:<12} {count} x {reason} in {bucket}")
+
+    meeting_share = facts.meeting_share()
+    if meeting_share is not None:
+        out.append(
+            f"  meeting load  the week was {meeting_share:.0%} meetings, "
+            "which is the denominator for all of the above"
+        )
     return out
 
 
