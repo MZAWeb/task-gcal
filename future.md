@@ -1,5 +1,24 @@
 # Future strategy
 
+> **Status: built.** This document was the plan; the README now describes
+> what exists. Everything in the recommended delivery order (§"Suggested
+> delivery order" 1–4) shipped, plus the Markdown, JSON and HTML renderers.
+>
+> Still deliberately unbuilt, for the reasons argued below:
+>
+> - **A TUI** (§"Why I would defer a TUI"). Terminal reports plus
+>   `--section` drill-down have not proved awkward, and the renderer
+>   architecture means adding one later wastes none of this work.
+> - **Other scheduling sources** — demands, occurrences, lanes, configured
+>   fitness (§"Suggested delivery order" 5). Waiting on the
+>   scheduler/report boundary having settled in real use.
+> - **Gamification** — streaks and dials (§principle 10). The metrics need
+>   useful coverage before anything is allowed to reward or penalise an
+>   answer.
+>
+> Kept as the argument for why the thing is shaped this way, which is worth
+> more than the plan was.
+
 We are deciding the product shape, not implementing it yet.
 
 My strategic recommendation is: **keep task-gcal CLI-first and do not commit to a TUI yet.**

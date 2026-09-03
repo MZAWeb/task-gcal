@@ -532,11 +532,30 @@ reverted within the same filesystem second, and CPython's `(mtime, size)`
 staleness check will then happily reuse the mutant's bytecode. That mis-scores
 the run in both directions.
 
-Most of it is characterization tests for the subtle scheduling rules —
-in-progress pinning, the overdue horizon, duplicate cleanup,
-`scheduled`/`wait` floors, the midnight-due bump — which exist so a refactor
-can't quietly undo one. If you change behavior on purpose, expect to change a
-test and say why in the commit.
+Roughly half of it is characterization tests for the subtle scheduling rules
+— in-progress pinning, schedule stability, the overdue horizon, duplicate
+cleanup, `scheduled`/`wait` floors, the midnight-due bump — which exist so a
+refactor can't quietly undo one. If you change behavior on purpose, expect to
+change a test and say why in the commit.
+
+The other half tests the review side, where the failure mode is different: a
+wrong number looks plausible. So those tests mostly pin *restraint* — that
+churn is described as observed, that a narrowing override isn't counted as
+boundary erosion, that missing data doesn't become zero, that no check-in
+answer is scored, and that a suggestion never reads as a verdict.
+
+Two structural invariants have tests of their own, because a stray import
+would break either silently:
+
+- The journal's write path can't read history (`test_journal.py`), so a
+  corrupt journal can never produce a wrong calendar.
+- Bare `task-gcal` doesn't import any review code (`test_cli.py`), so the
+  fast path stays fast as the analytical side grows.
+
+The journal directory is a per-test temp dir, set by an autouse fixture. It
+has to be unconditional: any command may append an observation, and a suite
+that writes into your real history is a bug that only shows up later as
+mysterious extra data.
 
 ## License
 
