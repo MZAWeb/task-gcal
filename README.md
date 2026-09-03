@@ -213,6 +213,23 @@ gets revoked, just delete `~/.config/task-gcal/token.json` and re-run
 `task-gcal --setup`. The tool also handles the most common refresh
 failures automatically.
 
+## Development
+
+```
+uv sync --group dev
+uv run pytest
+```
+
+The suite uses no network and no Taskwarrior: the calendar, the `task export`
+subprocess, and the clock are all faked (see `tests/conftest.py`). Tests always
+set `timezone` explicitly, so nothing depends on the machine's local zone.
+
+Most of it is characterization tests for the subtle scheduling rules —
+in-progress pinning, the overdue horizon, duplicate cleanup,
+`scheduled`/`wait` floors, the midnight-due bump — which exist so a refactor
+can't quietly undo one. If you change behavior on purpose, expect to change a
+test and say why in the commit.
+
 ## License
 
 [MIT](LICENSE) © Daniel Dvorkin
