@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from typing import Optional
 
 from googleapiclient.errors import HttpError
@@ -61,6 +62,7 @@ _OVERRIDE_DESTS = (
     "timezone",
     "overdue_horizon_days",
     "lookback_days",
+    "settle_days",
     "override_uda",
     "removal_guard_ratio",
 )
@@ -138,6 +140,11 @@ def _overrides_parent() -> argparse.ArgumentParser:
         help="How far back to scan for our own past events (default: 7).",
     )
     g.add_argument(
+        "--settle-days", dest="settle_days", type=int, metavar="DAYS",
+        help="Keep placements starting within this many days unless they "
+             "become invalid; 0 always takes the earliest slot (default: 2).",
+    )
+    g.add_argument(
         "--removal-guard-ratio", dest="removal_guard_ratio", type=float,
         metavar="RATIO",
         help="Refuse to remove more than this share of our own unfinished "
@@ -151,6 +158,8 @@ def _run_schedule(args, settings) -> int:
         GCal(settings)
         print("Auth OK.")
         return 0
+    if args.reoptimize:
+        settings = replace(settings, settle_days=0)
     return reconcile(settings, dry_run=args.dry_run, force=args.force)
 
 
@@ -189,6 +198,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Bypass the bulk-removal guard (see --removal-guard-ratio).",
+    )
+    schedule_p.add_argument(
+        "--reoptimize",
+        action="store_true",
+        help="Re-place every block at its earliest fitting slot, giving up "
+             "near-term placements (same as --settle-days 0).",
     )
     schedule_p.set_defaults(func=_run_schedule)
 

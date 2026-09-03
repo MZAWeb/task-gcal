@@ -14,12 +14,14 @@ On every manual run:
 3. Reconciles:
    - Future events for tasks no longer in `next` (done, deleted, etc.)
      are removed. Past events are kept as history.
-   - For each remaining task, finds the earliest aligned working-hours
-     slot of length `estimate` minutes that ends on or before the
-     task's due date and does not overlap any timed event on the
-     calendar. A task's `scheduled` and/or `wait` date (whichever is
-     later) is honored as an inclusive earliest-start, so the task is
-     only ever placed within `[scheduled, due]`.
+   - Blocks starting within `settle_days` (default 2) stay where they
+     are, unless they've become invalid (see below). Everything else is
+     placed at the earliest aligned working-hours slot of length
+     `estimate` minutes that ends on or before the task's due date and
+     does not overlap any timed event on the calendar. A task's
+     `scheduled` and/or `wait` date (whichever is later) is honored as
+     an inclusive earliest-start, so the task is only ever placed
+     within `[scheduled, due]`.
    - All-day events, "Free"-transparency events, and meetings you
      declined are ignored when computing busy time (matches Google's
      own free/busy semantics).
@@ -39,6 +41,33 @@ On every manual run:
 
 The tool is idempotent: re-running with no input changes results in no
 calendar mutations.
+
+### Schedule stability
+
+A block you've planned your day around shouldn't move because a meeting
+got cancelled. So a placement starting within `settle_days` (default 2)
+is a commitment: it's kept unless it has become **invalid**, which means
+exactly one of
+
+- its `estimate` changed, so the block is the wrong length,
+- a meeting now overlaps it,
+- it falls outside working hours (you narrowed the window),
+- it ends after its due date (the deadline moved earlier), or
+- it starts before its `scheduled`/`wait` date.
+
+Only invalid and new placements are re-derived, and settled blocks are
+reserved *first*, so a newly urgent task takes the earliest slot that is
+still free rather than one that was already promised. Placement is
+therefore no longer globally optimal — that's the trade: urgency shifts
+every hour via Taskwarrior's age coefficient, and chasing it is what
+made the calendar untrustworthy. When a block does move, the report says
+why (`(moved: overlaps a calendar event)`).
+
+Beyond the window nothing is sticky — you haven't planned next Thursday
+yet, so re-optimizing it is free. `task-gcal --reoptimize` (or
+`settle_days = 0`) gives up every near-term placement and takes the
+earliest fit, as the tool used to. An in-progress block is always
+sticky, whatever `settle_days` says.
 
 ### The bulk-removal guard
 
@@ -133,6 +162,7 @@ report              = "next"
 timezone            = "Europe/London"   # omit to use the system local zone
 overdue_horizon_days = 30          # how far ahead overdue tasks may land
 lookback_days       = 7            # how far back to scan for our own events
+settle_days         = 2            # blocks this close stay put unless invalid
 removal_guard_ratio = 0.5          # max share of our events one run may remove
 ```
 

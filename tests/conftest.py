@@ -28,6 +28,18 @@ def utc(year: int, month: int, day: int, hour: int = 0, minute: int = 0) -> date
     return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
 
 
+MIDNIGHT = utc(2026, 9, 7)  # the Monday NOW falls on
+
+
+def at(day: int, hour: int, minute: int = 0) -> datetime:
+    """Wall-clock UTC, `day` days after Monday 2026-09-07."""
+    return MIDNIGHT + timedelta(days=day, hours=hour, minutes=minute)
+
+
+WED_5PM = at(2, 17)
+FRI_5PM = at(4, 17)
+
+
 def tw_stamp(dt: datetime) -> str:
     """Taskwarrior's export format: compact ISO, always UTC."""
     return dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

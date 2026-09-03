@@ -20,6 +20,7 @@ from .gcal import CalEvent, GCal
 from .progress import Progress
 from .report import print_report
 from .scheduler import find_earliest_slot
+from .stability import invalid_reason, is_settled
 from .taskw import TaskInfo, load_next_tasks
 
 
@@ -32,6 +33,25 @@ class Placement:
     end: datetime  # local
     action: str  # create | update | unchanged
     past_due: bool
+    # Set when a settled block had to be given up: why it was no longer
+    # valid. None for a block that was new, or that never moved.
+    moved_reason: Optional[str] = None
+
+
+@dataclass
+class _Decision:
+    """Where a task's block will be, decided before the calendar is touched."""
+
+    task: TaskInfo
+    start_utc: datetime
+    end_utc: datetime
+    past_due: bool
+    keeper: Optional[CalEvent]
+    moved_reason: Optional[str] = None
+
+    @property
+    def interval(self) -> tuple[datetime, datetime]:
+        return (self.start_utc, self.end_utc)
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +207,288 @@ def horizon_for(
 
 
 # ---------------------------------------------------------------------------
+# Placement planning
+# ---------------------------------------------------------------------------
+
+def _task_window(
+    t: TaskInfo, ts: Settings, now: datetime, tz: tzinfo
+) -> tuple[datetime, datetime, datetime]:
+    """The bounds a placement for `t` must respect.
+
+    Returns `(earliest allowed start, effective deadline, adjusted due)`.
+
+    Overdue policy: a past-due task is still scheduled ASAP, so its
+    effective deadline is pushed out to give the slot search room. The task
+    stays "overdue" in the user's eyes and the report flags it.
+
+    Overdue-ness is judged from the *raw* due date, not the end-of-day
+    adjusted one: a date-only `due:today` is midnight today, which has
+    already passed (Taskwarrior sets +OVERDUE for it too). Using the bumped
+    value here would mask that and drop the task ("could not fit before due
+    date") instead of letting it spill past today. The earliest-slot search
+    still prefers today when a slot is free; the horizon only matters once
+    today fills.
+    """
+    due = effective_due(t.due, tz, ts)
+
+    # Honor `scheduled`/`wait`: never place the task before that date. The
+    # floor is inclusive, so a slot may start on the date.
+    earliest = now
+    floor = t.earliest_start
+    if floor is not None and floor > earliest:
+        earliest = floor
+
+    deadline = (
+        now + timedelta(days=ts.overdue_horizon_days) if t.due <= now else due
+    )
+    return earliest, deadline, due
+
+
+def plan_placements(
+    tasks: list[TaskInfo],
+    *,
+    task_settings: dict[str, Settings],
+    keepers: dict[str, CalEvent],
+    busy: list[tuple[datetime, datetime]],
+    now: datetime,
+    tz: tzinfo,
+    settings: Settings,
+    progress: Optional[Progress] = None,
+) -> tuple[list[_Decision], list[TaskInfo]]:
+    """Decide where every schedulable task's block goes.
+
+    Two passes, and the order is the point. Pass one reserves the blocks we
+    already committed to — in-progress and settled near-term placements that
+    are still valid. Only then does pass two place the rest, so a newly
+    urgent task can claim time that isn't already promised. One
+    urgency-ordered pass would let that task take a slot a settled block was
+    sitting in, and the settled block would have to move after all.
+
+    `busy` is extended in place with every block reserved or placed. Returns
+    the decisions in urgency order, and the tasks that didn't fit.
+    """
+    decisions: list[_Decision] = []
+    unschedulable: list[TaskInfo] = []
+    # Why each settled candidate had to be given up, so the report can say.
+    moved: dict[str, str] = {}
+
+    # ---- Pass 1: reserve blocks we already committed to -------------------
+    # Earliest first, so an in-progress block is reserved before anything
+    # else and two settled blocks that somehow overlap resolve in favour of
+    # the one starting sooner.
+    settled_first = sorted(
+        (t for t in tasks if _is_sticky_candidate(t, keepers, now, settings)),
+        key=lambda t: keepers[t.uuid].start,
+    )
+    for t in settled_first:
+        ts = task_settings[t.uuid]
+        keeper = keepers[t.uuid]
+        if keeper.start <= now < keeper.end:
+            decision = _pin_in_progress(t, keeper, now, ts)
+        else:
+            earliest, deadline, due = _task_window(t, ts, now, tz)
+            why = invalid_reason(
+                start=keeper.start,
+                end=keeper.end,
+                duration_minutes=t.estimate_minutes,
+                earliest_start=earliest,
+                deadline=deadline,
+                busy=busy,
+                tz=tz,
+                settings=ts,
+            )
+            if why is not None:
+                moved[t.uuid] = why
+                continue
+            decision = _Decision(
+                task=t,
+                start_utc=keeper.start,
+                end_utc=keeper.end,
+                past_due=keeper.start > due,
+                keeper=keeper,
+            )
+        decisions.append(decision)
+        bisect.insort(busy, decision.interval)
+
+    # ---- Pass 2: place everything else, most urgent first ----------------
+    reserved = {d.task.uuid for d in decisions}
+    for t in sorted(tasks, key=lambda t: t.urgency, reverse=True):
+        if progress is not None:
+            progress.advance(t.description[:48])
+        if t.uuid in reserved:
+            continue
+        ts = task_settings[t.uuid]
+        earliest, deadline, due = _task_window(t, ts, now, tz)
+        slot = find_earliest_slot(
+            duration_minutes=t.estimate_minutes,
+            earliest_start=earliest,
+            deadline=deadline,
+            busy=busy,
+            tz=tz,
+            settings=ts,
+        )
+        if slot is None:
+            unschedulable.append(t)
+            continue
+        start_utc = slot[0].astimezone(timezone.utc)
+        end_utc = slot[1].astimezone(timezone.utc)
+        decision = _Decision(
+            task=t,
+            start_utc=start_utc,
+            end_utc=end_utc,
+            # "Past due" means the chosen slot actually starts after the
+            # (end-of-day-adjusted) due date — the task could not be done in
+            # time and spilled. A `due:today` task scheduled later today is
+            # overdue but not past due, so it stays in the normal list.
+            past_due=start_utc > due,
+            keeper=keepers.get(t.uuid),
+            moved_reason=moved.get(t.uuid),
+        )
+        decisions.append(decision)
+        bisect.insort(busy, decision.interval)
+
+    decisions.sort(key=lambda d: d.task.urgency, reverse=True)
+    return decisions, unschedulable
+
+
+def _is_sticky_candidate(
+    t: TaskInfo,
+    keepers: dict[str, CalEvent],
+    now: datetime,
+    settings: Settings,
+) -> bool:
+    """True if `t`'s existing block is one pass one should try to keep.
+
+    An in-progress block always qualifies — never yank a block you're in the
+    middle of. A finished one never does: it stays put as history and the
+    task gets a fresh event.
+    """
+    keeper = keepers.get(t.uuid)
+    if keeper is None or keeper.end <= now:
+        return False
+    if keeper.start <= now < keeper.end:
+        return True
+    return is_settled(keeper.start, now, settings.settle_days)
+
+
+def _pin_in_progress(
+    t: TaskInfo, keeper: CalEvent, now: datetime, ts: Settings
+) -> _Decision:
+    """Keep an in-progress block's start, let its end follow the estimate.
+
+    So extending an estimate mid-block extends the block, but we never move
+    the start or duplicate it.
+    """
+    end_utc = keeper.start + timedelta(minutes=t.estimate_minutes)
+    if end_utc <= now:
+        # A shortened estimate would end the block in the past; leave the
+        # end where it is rather than rewind it.
+        end_utc = keeper.end
+    return _Decision(
+        task=t,
+        start_utc=keeper.start,
+        end_utc=end_utc,
+        past_due=False,
+        keeper=keeper,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Writing placements to the calendar
+# ---------------------------------------------------------------------------
+
+def _apply_decision(
+    d: _Decision,
+    *,
+    gcal: GCal,
+    tz: tzinfo,
+    ts: Settings,
+    now: datetime,
+    dry_run: bool,
+) -> Placement:
+    """Create, patch, or leave alone the event for one decision."""
+    t = d.task
+    summary = t.description
+    description = event_description(t, tz)
+    keeper = d.keeper
+
+    def _create() -> None:
+        if dry_run:
+            return
+        gcal.create_event(
+            task_uuid=t.uuid,
+            summary=summary,
+            description=description,
+            start=d.start_utc,
+            end=d.end_utc,
+            color_id=ts.event_color_id,
+            visibility=ts.event_visibility,
+            attendees=ts.attendees,
+        )
+
+    if keeper is None or keeper.end <= now:
+        # No keeper, or the keeper has already finished: create a fresh
+        # event. In-progress and upcoming keepers are patched in place;
+        # finished ones stay put as a record.
+        _create()
+        action = "create"
+    else:
+        need_summary = keeper.summary != summary
+        need_time = not (
+            _almost_equal(keeper.start, d.start_utc)
+            and _almost_equal(keeper.end, d.end_utc)
+        )
+        need_desc = (keeper.raw.get("description") or "") != description
+        need_color = keeper.raw.get("colorId") != ts.event_color_id
+        need_visibility = keeper.raw.get("visibility") != ts.event_visibility
+        # Additive: invite UDA addresses that aren't already on the event;
+        # never drop anyone (preserves manual attendees).
+        existing_atts = keeper.raw.get("attendees") or []
+        existing_emails = {(a.get("email") or "").lower() for a in existing_atts}
+        new_atts = [e for e in ts.attendees if e.lower() not in existing_emails]
+        need_attendees = bool(new_atts)
+        if (
+            need_summary
+            or need_time
+            or need_desc
+            or need_color
+            or need_visibility
+            or need_attendees
+        ):
+            action = "update"
+            if not dry_run:
+                ok = gcal.patch_event(
+                    keeper.id,
+                    summary=summary if need_summary else None,
+                    description=description if need_desc else None,
+                    start=d.start_utc if need_time else None,
+                    end=d.end_utc if need_time else None,
+                    color_id=ts.event_color_id if need_color else None,
+                    visibility=ts.event_visibility if need_visibility else None,
+                    attendees=(
+                        existing_atts + [{"email": e} for e in new_atts]
+                        if need_attendees
+                        else None
+                    ),
+                )
+                if not ok:
+                    # Event vanished between list and patch; recreate.
+                    _create()
+                    action = "create"
+        else:
+            action = "unchanged"
+
+    return Placement(
+        task=t,
+        start=d.start_utc.astimezone(tz),
+        end=d.end_utc.astimezone(tz),
+        action=action,
+        past_due=d.past_due,
+        moved_reason=d.moved_reason,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main reconcile
 # ---------------------------------------------------------------------------
 
@@ -304,11 +606,9 @@ def reconcile(
         exclude_event_ids=our_event_ids,
     )
 
-    # ---------------- Step 3: schedule ---------------------------------
+    # ---------------- Step 3: decide placements -------------------------
     no_estimate: list[TaskInfo] = []
     no_due: list[TaskInfo] = []
-    unschedulable: list[TaskInfo] = []
-    placed: list[Placement] = []
     removed_stale: list[str] = []
 
     def _drop_existing_if_future(uuid: str, why: str) -> None:
@@ -316,191 +616,50 @@ def reconcile(
         if ev and ev.start > now:
             _plan_delete(ev, removed_stale, tag=f"({why}) ")
 
-    tasks_sorted = sorted(tasks, key=lambda t: t.urgency, reverse=True)
-
-    sched_prog = Progress(
-        total=len(tasks_sorted),
-        label="Scheduling tasks…",
-        enabled=show_progress,
-    )
-
-    for t in tasks_sorted:
-        sched_prog.advance(t.description[:48])
+    schedulable: list[TaskInfo] = []
+    for t in sorted(tasks, key=lambda t: t.urgency, reverse=True):
         if t.estimate_minutes is None:
             no_estimate.append(t)
             _drop_existing_if_future(t.uuid, "no estimate")
-            continue
-
-        if t.due is None:
+        elif t.due is None:
             no_due.append(t)
             _drop_existing_if_future(t.uuid, "no due date")
-            continue
+        else:
+            schedulable.append(t)
 
-        # Per-task effective settings (global + any `gcal` UDA override).
-        ts = task_settings[t.uuid]
-        existing_ev = keepers.get(t.uuid)
-        ongoing = (
-            existing_ev is not None
-            and existing_ev.start <= now < existing_ev.end
+    sched_prog = Progress(
+        total=len(schedulable),
+        label="Scheduling tasks…",
+        enabled=show_progress,
+    )
+    decisions, unschedulable = plan_placements(
+        schedulable,
+        task_settings=task_settings,
+        keepers=keepers,
+        busy=busy,
+        now=now,
+        tz=tz,
+        settings=settings,
+        progress=sched_prog,
+    )
+    for t in unschedulable:
+        _drop_existing_if_future(t.uuid, "no slot fits")
+
+    # ---------------- Step 4: write the placements ---------------------
+    placed = [
+        _apply_decision(
+            d,
+            gcal=gcal,
+            tz=tz,
+            ts=task_settings[d.task.uuid],
+            now=now,
+            dry_run=dry_run,
         )
-
-        if ongoing:
-            # The event is in progress: pin its start so we never yank a
-            # block you're in the middle of, but let the end follow the
-            # current estimate (e.g. when you extend it) and refresh
-            # metadata in place. We never move the start or duplicate it.
-            start_utc = existing_ev.start
-            end_utc = start_utc + timedelta(minutes=t.estimate_minutes)
-            if end_utc <= now:
-                # A shortened estimate would end the block in the past;
-                # leave the end where it is rather than rewind it.
-                end_utc = existing_ev.end
-            start = start_utc.astimezone(tz)
-            end = end_utc.astimezone(tz)
-            past_due = False
-        else:
-            # Adjust a midnight due date to end of that working day.
-            due = effective_due(t.due, tz, ts)
-
-            # Honor `scheduled`/`wait`: never place the task before that
-            # date. The floor is inclusive, so a slot may start on the date.
-            earliest = now
-            floor = t.earliest_start
-            if floor is not None and floor > earliest:
-                earliest = floor
-
-            # Overdue policy: if the task is past due, we still schedule it
-            # ASAP. The effective deadline is pushed out so the slot search
-            # has room. The task remains "overdue" in the user's eyes; we
-            # flag it prominently in the report.
-            #
-            # Judge overdue-ness from the *raw* due date, not the end-of-day
-            # adjusted one: a date-only `due:today` is midnight today, which
-            # has already passed (Taskwarrior sets +OVERDUE for it too).
-            # Using the bumped end-of-day value here would mask that and
-            # drop the task ("could not fit before due date") instead of
-            # letting it spill past today. The earliest-slot search still
-            # prefers today when a slot is free; the horizon only matters
-            # once today fills.
-            was_overdue = t.due <= now
-            effective_deadline = (
-                now + timedelta(days=ts.overdue_horizon_days)
-                if was_overdue
-                else due
-            )
-
-            slot = find_earliest_slot(
-                duration_minutes=t.estimate_minutes,
-                earliest_start=earliest,
-                deadline=effective_deadline,
-                busy=busy,
-                tz=tz,
-                settings=ts,
-            )
-            if slot is None:
-                unschedulable.append(t)
-                _drop_existing_if_future(t.uuid, "no slot fits")
-                continue
-
-            start, end = slot
-            start_utc = start.astimezone(timezone.utc)
-            end_utc = end.astimezone(timezone.utc)
-            # "Past due" for the report means the chosen slot actually
-            # starts after the (end-of-day-adjusted) due date — i.e. the
-            # task could not be done in time and spilled. A `due:today`
-            # task scheduled later today is overdue but not "past due", so
-            # it stays in the normal list and doesn't trip the warning.
-            past_due = start_utc > due
-
-        summary = t.description
-        description = event_description(t, tz)
-
-        if existing_ev is None or existing_ev.end <= now:
-            # No keeper, or the keeper has already finished: create a fresh
-            # event. In-progress and upcoming keepers are patched in place
-            # below; finished ones stay put as a record.
-            action = "create"
-            if not dry_run:
-                gcal.create_event(
-                    task_uuid=t.uuid,
-                    summary=summary,
-                    description=description,
-                    start=start_utc,
-                    end=end_utc,
-                    color_id=ts.event_color_id,
-                    visibility=ts.event_visibility,
-                    attendees=ts.attendees,
-                )
-        else:
-            need_summary = existing_ev.summary != summary
-            need_time = not (
-                _almost_equal(existing_ev.start, start_utc)
-                and _almost_equal(existing_ev.end, end_utc)
-            )
-            existing_desc = existing_ev.raw.get("description") or ""
-            need_desc = existing_desc != description
-            need_color = existing_ev.raw.get("colorId") != ts.event_color_id
-            need_visibility = (
-                existing_ev.raw.get("visibility") != ts.event_visibility
-            )
-            # Additive: invite UDA addresses that aren't already on the
-            # event; never drop anyone (preserves manual attendees).
-            existing_atts = existing_ev.raw.get("attendees") or []
-            existing_emails = {
-                (a.get("email") or "").lower() for a in existing_atts
-            }
-            new_atts = [
-                e for e in ts.attendees if e.lower() not in existing_emails
-            ]
-            need_attendees = bool(new_atts)
-            if (
-                need_summary
-                or need_time
-                or need_desc
-                or need_color
-                or need_visibility
-                or need_attendees
-            ):
-                action = "update"
-                if not dry_run:
-                    ok = gcal.patch_event(
-                        existing_ev.id,
-                        summary=summary if need_summary else None,
-                        description=description if need_desc else None,
-                        start=start_utc if need_time else None,
-                        end=end_utc if need_time else None,
-                        color_id=ts.event_color_id if need_color else None,
-                        visibility=(
-                            ts.event_visibility if need_visibility else None
-                        ),
-                        attendees=(
-                            existing_atts + [{"email": e} for e in new_atts]
-                            if need_attendees
-                            else None
-                        ),
-                    )
-                    if not ok:
-                        # Event vanished between list and patch; recreate.
-                        gcal.create_event(
-                            task_uuid=t.uuid,
-                            summary=summary,
-                            description=description,
-                            start=start_utc,
-                            end=end_utc,
-                            color_id=ts.event_color_id,
-                            visibility=ts.event_visibility,
-                            attendees=ts.attendees,
-                        )
-                        action = "create"
-            else:
-                action = "unchanged"
-
-        placed.append(Placement(t, start, end, action, past_due))
-        bisect.insort(busy, (start_utc, end_utc))
-
+        for d in decisions
+    ]
     sched_prog.close()
 
-    # ---------------- Step 4: execute the removal plan -------------------
+    # ---------------- Step 5: execute the removal plan -------------------
     guard_error = (
         None
         if force

@@ -29,6 +29,15 @@ def _override_flag(t: TaskInfo) -> str:
     return f"  [override: {t.overrides_raw}]" if t.overrides_raw else ""
 
 
+def _moved_flag(p) -> str:
+    """Why a block we'd already committed to had to be given up.
+
+    Near-term placements are sticky, so a move is now the exception and
+    worth explaining on the line where you notice it.
+    """
+    return f"  (moved: {p.moved_reason})" if p.moved_reason else ""
+
+
 def print_report(
     *,
     placed,
@@ -62,7 +71,7 @@ def print_report(
             print(
                 f"  [{p.action:<9}] {s}-{e}  u={p.task.urgency:5.2f}  "
                 f"{_est(p.task)}  {p.task.ref} {p.task.description}"
-                f"{_override_flag(p.task)}"
+                f"{_override_flag(p.task)}{_moved_flag(p)}"
             )
         print()
 
@@ -151,5 +160,5 @@ def print_report(
             print(
                 f"  ! [{p.action:<9}] {s}-{e}  u={p.task.urgency:5.2f}  "
                 f"{_est(p.task)}  {p.task.ref} {p.task.description}  "
-                f"(due {due_s}){_override_flag(p.task)}"
+                f"(due {due_s}){_override_flag(p.task)}{_moved_flag(p)}"
             )

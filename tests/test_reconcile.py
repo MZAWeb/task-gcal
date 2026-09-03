@@ -34,18 +34,7 @@ import pytest
 from task_gcal import schedule as schedule_mod
 from task_gcal.config import Settings
 
-from conftest import NOW, managed_event, task_row, utc
-
-MIDNIGHT = utc(2026, 9, 7)  # Monday 00:00
-
-
-def at(day: int, hour: int, minute: int = 0):
-    """Wall-clock UTC, `day` days after Monday 2026-09-07."""
-    return MIDNIGHT + timedelta(days=day, hours=hour, minutes=minute)
-
-
-WED_5PM = at(2, 17)
-FRI_5PM = at(4, 17)
+from conftest import FRI_5PM, MIDNIGHT, NOW, WED_5PM, at, managed_event, task_row
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +156,113 @@ def test_an_in_progress_task_is_never_reported_as_past_due(harness):
     ).events(ongoing)
     res = harness.run()
     assert res.section("Overdue") == []
+
+
+# ---------------------------------------------------------------------------
+# Schedule stability (a near-term block is a commitment, not a suggestion)
+# ---------------------------------------------------------------------------
+
+def test_a_settled_block_is_not_pulled_earlier(harness):
+    # Tomorrow 14:00 while today 09:00 is wide open. Earliest-fit would move
+    # it; a block you've planned around must not move for a marginal gain.
+    settled = managed_event(id="ev1", task_uuid="u1", start=at(1, 14), end=at(1, 15))
+    harness.tasks(task_row(uuid="u1", due=FRI_5PM, estimate=60)).events(settled)
+    res = harness.run()
+
+    assert harness.gcal.event_for("u1").start == at(1, 14)
+    # The fixture's blank description still needs a refresh, but the time
+    # must not be part of that patch.
+    (_, body) = harness.gcal.patched[0]
+    assert "start" not in body and "end" not in body
+    assert "moved" not in res.out
+
+
+def test_a_block_beyond_the_settle_window_is_re_optimized(harness):
+    # Day 3 is outside the default 2-day window: you haven't planned that
+    # day yet, so taking the earlier slot is free.
+    loose = managed_event(id="ev1", task_uuid="u1", start=at(3, 14), end=at(3, 15))
+    harness.tasks(task_row(uuid="u1", due=FRI_5PM, estimate=60)).events(loose)
+    harness.run()
+
+    assert harness.gcal.event_for("u1").start == at(0, 9)
+
+
+def test_settle_days_zero_restores_earliest_fit(harness):
+    settled = managed_event(id="ev1", task_uuid="u1", start=at(1, 14), end=at(1, 15))
+    harness.tasks(task_row(uuid="u1", due=FRI_5PM, estimate=60)).events(settled)
+    harness.configure(settle_days=0).run()
+
+    assert harness.gcal.event_for("u1").start == at(0, 9)
+
+
+def test_a_settled_block_yields_when_a_meeting_lands_on_it(harness):
+    settled = managed_event(id="ev1", task_uuid="u1", start=at(1, 14), end=at(1, 15))
+    harness.tasks(task_row(uuid="u1", due=FRI_5PM, estimate=60)).events(settled)
+    harness.busy((at(1, 14), at(1, 15)))
+    res = harness.run()
+
+    assert harness.gcal.event_for("u1").start == at(0, 9)
+    assert "overlaps a calendar event" in res.section("Scheduled")[0]
+
+
+def test_a_settled_block_yields_when_its_estimate_grows(harness):
+    settled = managed_event(id="ev1", task_uuid="u1", start=at(1, 14), end=at(1, 15))
+    harness.tasks(task_row(uuid="u1", due=FRI_5PM, estimate=120)).events(settled)
+    res = harness.run()
+
+    assert harness.gcal.event_for("u1").end - harness.gcal.event_for("u1").start == (
+        timedelta(minutes=120)
+    )
+    assert "estimate changed" in res.section("Scheduled")[0]
+
+
+def test_a_settled_block_yields_when_the_due_date_moves_in_front_of_it(harness):
+    settled = managed_event(id="ev1", task_uuid="u1", start=at(1, 14), end=at(1, 15))
+    harness.tasks(task_row(uuid="u1", due=at(1, 12), estimate=60)).events(settled)
+    res = harness.run()
+
+    assert harness.gcal.event_for("u1").start == at(0, 9)
+    assert "ends after its due date" in res.section("Scheduled")[0]
+
+
+def test_a_settled_block_survives_a_newly_urgent_task(harness):
+    # The whole point of reserving settled blocks first: the urgent task
+    # takes the earliest *free* slot, not the one already promised.
+    settled = managed_event(id="ev1", task_uuid="calm", start=at(0, 9), end=at(0, 10))
+    harness.tasks(
+        task_row(uuid="calm", id=1, urgency=1.0, due=FRI_5PM, estimate=60),
+        task_row(uuid="urgent", id=2, urgency=99.0, due=FRI_5PM, estimate=60),
+    ).events(settled)
+    harness.run()
+
+    assert harness.gcal.event_for("calm").start == at(0, 9)
+    assert harness.gcal.event_for("urgent").start == at(0, 10)
+
+
+def test_a_settled_block_is_not_patched_at_all(harness):
+    # Cost three of always re-deriving placements: pointless API calls, and
+    # a notification for every block that has attendees.
+    harness.tasks(task_row(uuid="u1", due=FRI_5PM, estimate=60))
+    harness.run()
+    harness.gcal.patched.clear()
+
+    harness.run()
+    assert harness.gcal.patched == []
+
+
+def test_two_settled_blocks_that_overlap_resolve_in_favour_of_the_earlier(harness):
+    # Only reachable by editing the calendar by hand, but it must not leave
+    # both in place on top of each other.
+    first = managed_event(id="ev1", task_uuid="a", start=at(0, 10), end=at(0, 11))
+    second = managed_event(id="ev2", task_uuid="b", start=at(0, 10, 30), end=at(0, 11, 30))
+    harness.tasks(
+        task_row(uuid="a", id=1, due=FRI_5PM, estimate=60),
+        task_row(uuid="b", id=2, due=FRI_5PM, estimate=60),
+    ).events(first, second)
+    harness.run()
+
+    assert harness.gcal.event_for("a").start == at(0, 10)
+    assert harness.gcal.event_for("b").start == at(0, 9)
 
 
 # ---------------------------------------------------------------------------

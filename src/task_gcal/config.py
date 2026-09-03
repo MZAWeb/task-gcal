@@ -20,6 +20,7 @@ Example config.toml:
     timezone        = "Europe/London"   # omit to use the system local zone
     overdue_horizon_days = 30
     lookback_days   = 7
+    settle_days     = 2                 # near-term placements stay put
     override_uda    = "gcal"            # task UDA holding per-task overrides
     removal_guard_ratio = 0.5           # max share of our events one run may remove
 """
@@ -85,6 +86,10 @@ class Settings:
     # How far in the past to look for our own previously-created events
     # when reconciling. Bounds the events.list query.
     lookback_days: int = 7
+    # A placement starting within this many days is a commitment: keep it
+    # unless it has become invalid, rather than chasing the earliest slot
+    # that fits. 0 restores always-earliest placement. See `stability.py`.
+    settle_days: int = 2
     # Fraction of our own unfinished events a single run may remove before
     # it refuses and asks for `--force`. Guards against one bad input
     # (empty task source, wrong UDA name) turning a run into a mass
@@ -143,6 +148,7 @@ def load_settings() -> Settings:
                 get("overdue_horizon_days", defaults.overdue_horizon_days)
             ),
             lookback_days=int(get("lookback_days", defaults.lookback_days)),
+            settle_days=int(get("settle_days", defaults.settle_days)),
             override_uda=str(get("override_uda", defaults.override_uda)),
             removal_guard_ratio=float(
                 get("removal_guard_ratio", defaults.removal_guard_ratio)

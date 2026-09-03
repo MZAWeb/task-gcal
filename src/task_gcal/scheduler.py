@@ -88,6 +88,24 @@ def _subtract_busy(
     return free
 
 
+def within_work_window(
+    start: datetime, end: datetime, tz: tzinfo, settings: Settings
+) -> bool:
+    """True if `[start, end)` lies entirely inside one working-hours window.
+
+    Leans on `_work_windows` clamping its output to the range it's asked
+    about: a range that *is* fully inside a working day comes back as a
+    single window identical to itself, and anything spilling over an edge,
+    landing on a non-working day, or straddling two days cannot.
+    """
+    start_local = start.astimezone(tz)
+    end_local = end.astimezone(tz)
+    return any(
+        ws <= start_local and end_local <= we
+        for ws, we in _work_windows(start, end, tz, settings)
+    )
+
+
 def find_earliest_slot(
     *,
     duration_minutes: int,
