@@ -45,10 +45,11 @@ each theme below puts pressure on one of them:
 5. **One time window.** `work_start_hour` .. `work_end_hour` on `work_days`.
 
 Theme A breaks (4) and (5). Theme B breaks (1) — reviews need history, and
-history has to be stored. Theme C potentially breaks (3) if we ever want
-triage actions to write back to Taskwarrior.
+history has to be stored. **(2) and (3) now survive permanently**: §7.7 chose
+print-only triage, so Taskwarrior stays read-only for good, and §1.8's stability
+rule strengthens idempotence rather than weakening it.
 
-We should break these deliberately, one at a time, and keep the parts that
+We should break the rest deliberately, one at a time, and keep the parts that
 still hold. In particular: **(1) can be preserved in spirit** — see the
 journal decision below.
 
@@ -679,12 +680,21 @@ A list, not a metric. Tasks matching any of:
 
 Each with one prescribed action: **do it, shrink it, hand it off, or kill it.**
 
-`task-gcal review --triage` would walk the list interactively. Note this is the
-first feature that wants to **write to Taskwarrior** (`task <id> modify
-due: wait:someday`, `task <id> delete`), breaking invariant (3). If we do it:
-explicit subcommand only, confirm each change, print the exact `task` command
-it will run, and `--dry-run` by default. Or the safer version — just *print*
-the commands and let you paste them. I'd start there.
+**Decided (§7.7): `review --triage` prints commands and changes nothing.** It
+lists each stagnant task with the exact `task ...` invocations that would
+resolve it, and you paste the ones you agree with:
+
+```
+Stagnant (3):
+  #40 Analyze peakon — due pushed 4x, +31d, 2 blocks passed
+      task 40 modify wait:someday   # not now
+      task 40 modify estimate:30    # shrink to a first step
+      task 40 delete                # be honest
+```
+
+So invariant (3) holds permanently: this tool never writes to Taskwarrior. That
+also keeps triage safe to run casually — there's no confirmation to misclick,
+and no `--dry-run` to forget.
 
 ### 3.5 Plan vs. reality — *mostly available today*
 
@@ -941,6 +951,13 @@ Each phase ships as a usable vertical slice with an acceptance check:
 | **5** | Every score recomputes from the journal alone; unobserved days pause streaks and are shown as gaps; blocks-to-completion is reported but never scored; the whole scoreboard switches off in one config line |
 | **6** | A source that returns HTTP 500, an empty feed, and a duplicate UID are each distinguishable from "everything was cancelled" |
 
+**Decided, but with no phase of their own:**
+
+- **`rc.context=none`** in `load_next_tasks` (§7.9). One line plus a test; it
+  removes a latent way to make the removal guard fire.
+- **`--md` and a Friday launchd job** are explicitly deferred, not rejected
+  (§3.8, §7.5).
+
 Three notes on the order:
 
 - **Phase 0.5 is small and comes early** because it changes behaviour the
@@ -1054,17 +1071,17 @@ migration must not accidentally make every pre-migration event look like one.
 6. ~~**Gamification tone.**~~ **Answered: four dials and streaks.** Note the
    interaction with question 3: dropping the check-in removed Calibration, which
    was the dial that made Throughput safe to score (§4.2).
-7. **Is writing to Taskwarrior acceptable** for triage (§3.4), or should we stay
-   strictly read-only and just print the commands?
+7. ~~**Is writing to Taskwarrior acceptable?**~~ **Answered: no — print the
+   commands.** Read-only becomes a permanent invariant rather than a provisional
+   one (§0, §3.4).
 8. ~~**The 9% problem.**~~ **Answered:** the low aggregate is historical. Since
    2026-06-14 coverage is 72% due / 71% estimate and rising, because the
    workflow standardized on both when this repo started (§3.1). The only
    consequence left is that reviews must not compare across that boundary.
-9. **Should we honour your active Taskwarrior context?** None are defined today,
-   so this is free to decide now. Honouring it means `task context personal`
-   plus a run would treat every work task as gone; ignoring it (`rc.context=none`)
-   means the scheduler always sees your whole `next` list. I'd ignore it — the
-   guard now makes the failure loud rather than destructive, but a scheduler
-   shouldn't change what it plans based on which report you were last reading.
+9. ~~**Should we honour your active Taskwarrior context?**~~ **Answered: no.**
+   `load_next_tasks` should pass `rc.context=none` alongside the
+   `rc.verbose`/`rc.confirmation` overrides it already sets, so what you were
+   last reading in the terminal can't change what gets planned. A one-line
+   change, listed below as pending.
 10. **Scope check.** This is a lot. If you had to pick two phases for the next
     month, which?
