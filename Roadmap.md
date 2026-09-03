@@ -52,9 +52,11 @@ We should break these deliberately, one at a time, and keep the parts that
 still hold. In particular: **(1) can be preserved in spirit** — see the
 journal decision below.
 
-There are also **no tests**. Adding a journal, multiple sources, multiple time
-profiles, and a pile of review arithmetic to a 700-line untested `cli.py` is
-how this project stops being fun. Test harness first (Phase 0).
+There were also **no tests**; there are now 269, with the five subtle
+scheduling rules pinned by characterization tests and verified by mutation
+(§1.7, §6.1). That was the precondition for everything below: adding a journal,
+multiple sources, multiple time profiles, and a pile of review arithmetic to a
+700-line untested `cli.py` is how this project stops being fun.
 
 **One thing shipped ahead of the phases**, because §1.2's fail-closed principle
 turned out to describe a live bug rather than a future risk: every removal is
@@ -98,9 +100,9 @@ Rules that keep it honest:
 - `schedule` **only ever appends**. It never reads the journal to make
   placement decisions. So a corrupt or deleted journal can never produce a
   wrong calendar — scheduling stays stateless where it matters.
-- `review` **only ever reads** it. Calibration may later read aggregate history,
-  but only behind the explicit `--calibrate` flag and must show the factor it
-  applied.
+- `review` **only ever reads** it. No derived history ever feeds back into
+  placement: `--calibrate` was the one planned exception and §7.3 removed it, so
+  the rule is now absolute.
 - Every derived number (scores, streaks, churn counts) is *recomputed* from the
   journal, never stored as a running total. This is reproducible, not
   tamper-proof: it is a local text file and that is fine.
@@ -474,14 +476,19 @@ templates, and matching heuristically is worse than not matching at all — a
 false positive silently tells you you've trained when you haven't. So, in
 order of preference:
 
-1. **A dedicated fitness calendar** (`fitness_calendar_id`). Unambiguous, zero
-   config per session, and it keeps training off your work calendar. Best
-   default.
-2. **Explicit per-template patterns** (`matches = ["Long run", "🏃"]`), opt-in.
+1. ~~A dedicated fitness calendar.~~ Ruled out by §7.4 — one calendar for
+   everything. It would have been the unambiguous option; noting the trade-off
+   because recognition is now the fiddly part of Phase 2.
+2. **Explicit per-template patterns** (`matches = ["Long run", "🏃"]`). Now the
+   default mechanism. Anchored matches only — exact title, or a prefix, or an
+   emoji marker — never substring similarity.
 3. **`task-gcal fitness --adopt <event>`**, which stamps an existing event with
-   our `source`/`key` so it's ours from then on.
+   our `source`/`key` so it's unambiguously ours from then on. The escape hatch
+   when a pattern would be too loose.
 
-Never adopt by fuzzy title similarity, and never silently.
+Never adopt by fuzzy title similarity, and never silently. A false positive
+tells you you've trained when you haven't, which is worse than the tool
+noticing nothing at all.
 
 Two knock-on rules once both kinds exist:
 
@@ -559,7 +566,7 @@ behaviour, then exactly one suggested change. Nothing here is a grade.
 | 6 | **Placement churn** — how many times each task's block was moved before it happened | "Is my calendar a plan or a suggestion?" | Journal | Phase 3 (§1.8) |
 | 7 | **Deadline integrity** — on-time rate, observed pushes (count, days, repeat offenders), self-deferred vs external | "Do my due dates mean anything?" | Journal + `due`/`end` | Partly today (§3.3) |
 | 8 | **Boundary erosion** — evenings and weekend days claimed, widening overrides, which projects took them | "What is this costing me outside work hours?" | Override UDA + placed blocks | Partly today (§3.7) |
-| 9 | **Calibration** — actual ÷ estimate by project/tag, with coverage | "Are my estimates fiction?" | Check-in | Phase 4 (§3.6) |
+| 9 | **Blocks-to-completion** — how many blocks a task needs, by project/tag | "Are my estimates fiction?" | Journal + `end` | Phase 4 (§3.6) |
 | 10 | **Fitness** — quota hit/missed per template, sessions moved, streak | "Did training survive the week?" | Fitness source + calendar | Phase 2 (§2.2) |
 | 11 | **Stagnation** — the triage list, with a prescribed action each | "What am I lying to myself about?" | Journal | Phase 3 (§3.4) |
 | 12 | **Coverage & caveats** — calendars measured, estimate coverage, unobserved days, definition changes | "How much should I trust the above?" | Journal metadata | With each phase |
@@ -634,11 +641,11 @@ week was already gone" turns a guilt metric into a capacity metric — and makes
 "say no to a meeting" a visible lever. It also gives every other number an
 honest denominator.
 
-Coverage must be explicit. "Available today" means events visible on the
-currently configured calendar and OAuth scope, not necessarily every calendar
-that can make you busy. Until multi-calendar free/busy reads exist, print the
-calendar(s) measured beside the number rather than presenting partial meeting
-load as total meeting load.
+**§7.4 chose a single calendar for everything**, which makes this number
+complete rather than partial — no multi-calendar free/busy reads needed, and the
+denominator is trustworthy as long as every meeting really does land there.
+Still print the calendar measured beside the number: it costs one line and it's
+the tripwire for the day a second calendar quietly appears.
 
 ### 3.3 Deadline integrity — *partly today, churn needs the journal*
 
@@ -692,7 +699,8 @@ the calendar can't show: how many times a block *moved* before it happened
 (§1.8), and what the estimate and due date were at the time.
 
 For each block we scheduled: was the task completed by the time the block
-ended? Gives a **follow-through rate**, and its failure modes are diagnostic:
+ended? With no check-in (§7.3) this is the load-bearing measurement, and it
+holds up — completion is a Taskwarrior fact. Gives a **follow-through rate**, and its failure modes are diagnostic:
 
 - Blocks that passed with the task still open → over-committed, or the block
   was at a bad time (which hour of day do your blocks fail most? that's a
@@ -700,28 +708,38 @@ ended? Gives a **follow-through rate**, and its failure modes are diagnostic:
 - Tasks completed with no block scheduled → you're working off-plan.
 - Blocks rescheduled repeatedly → the estimate or the deadline is fiction.
 
-### 3.6 Estimation calibration — *needs actuals; needs a decision from you*
+### 3.6 What we can infer without actuals — *decided: no check-in*
 
-We have no actual-time source (no Timewarrior, and `journal.time=0`). Options:
+**Decided (§7.3): no daily check-in.** So there is no source of actual time
+spent — no Timewarrior, `journal.time = 0`, and Google Calendar has no "did you
+attend" signal. Two consequences, stated plainly because one is a real loss:
 
-| Option | Cost to you | Quality |
+- **`schedule --calibrate` is off the table.** Multiplying each estimate by a
+  historical actual÷estimate factor needs actuals, and there is no factor to
+  compute. If your estimates are systematically wrong *in minutes*, this tool
+  will not find out.
+- **The Calibration dial goes with it** (§4.2) — and it was the keystone that
+  made the other dials safe to score. §4.2 has the replacement.
+
+Everything keyed on *completion* survives, because Taskwarrior timestamps that
+exactly:
+
+| Signal | Derived from | Strength |
 | --- | --- | --- |
-| **`task-gcal checkin`** — walks yesterday's blocks, asks done?/how long? | ~30s/day | Best; the only source that knows what actually happened |
-| Timewarrior via the standard Taskwarrior hook | Install + remember `task start` | Good when you remember |
-| Infer from the calendar (did the block survive untouched?) | Zero | Weak proxy, but free |
-| Taskwarrior `start`/`stop` ops | Remember to start/stop | Same discipline problem |
+| Was the task completed by the time its block ended? | block time + `end` | Strong — a fact, not an inference |
+| How many blocks passed before it was completed? | journal + `end` | Strong: a task that needed 3 blocks was under-estimated ~3× |
+| Was the estimate revised upward while the task was open? | journal | Strong signal of a bad first estimate |
+| Did the block survive untouched to its end? | our own event history | Weak proxy for "you did the thing" |
 
-I'd recommend the check-in, opt-in, skippable, and forgiving. Blank means
-**unknown**, not "as estimated"; silently substituting the estimate would make
-calibration look better without adding evidence. Fast inputs can still make it
-cheap: `d` = done as estimated, `45` = done in 45m, `s` = skipped, Enter =
-unknown. This small amount of typing unlocks §3.5, §3.6, and most of Theme C.
+**The substitute for calibration is blocks-to-completion.** We can't say "you
+take 1.8× longer than you think", but we *can* say "writing tasks take 2.4
+blocks on average, so your 60m estimate is really about 150m." Same actionable
+finding, derived from completions instead of stopwatch data, and it costs you
+nothing. It's coarser — quantised to whole blocks, and it can't see a task you
+finished early — but it's honest, and it needs no discipline to keep working.
 
-**And then close the loop:** with a few weeks of ratios, `schedule
---calibrate` multiplies each estimate by your historical factor for that
-project/tag (e.g. "writing: ×1.8"). Applied at *schedule* time only — we still
-never modify the task. That's the moment this tool stops being a calendar
-writer and starts being useful about your time.
+If you ever change your mind, the check-in is additive: it would sharpen these
+numbers rather than replace them.
 
 ### 3.7 Boundary erosion — what this is costing your evenings and weekends
 
@@ -778,9 +796,16 @@ out-of-window block placed (§4.3).
 
 ### 3.8 Output
 
-Terminal first, matching the existing report style. Then `--md PATH` to drop a
-Markdown file (into `~/notes`, if that's the right place — see §7). Optionally
-a Friday-afternoon launchd job that runs the review and mails/notifies it.
+**Decided (§7.5): terminal only.** Same style as the existing schedule report,
+no files, no notifications, nothing to clean up. `--md PATH` and a Friday
+launchd job are deferred, not designed away — the review builds its content as
+data and renders at the end, so adding an output format later is a renderer,
+not a rewrite.
+
+One consequence worth accepting deliberately: a terminal-only review leaves no
+trail. Trends still work, because they're recomputed from the journal rather
+than from past reports — but you won't be able to reread what you concluded in
+week 34. If that starts to matter, `--md` is the answer.
 
 ---
 
@@ -805,10 +830,24 @@ behavior you actually want.**
 | **Throughput** | *planned* minutes completed ÷ your 12-week median, capped | Relative to yourself; inflation shifts the baseline too |
 | **Follow-through** | scheduled blocks completed as planned | To win you must plan a week you can actually do — i.e. be honest about capacity |
 | **Deadline integrity** | `clamp(1 − pushes ÷ open tasks with due dates, 0, 1)` | Directly penalizes the push reflex |
-| **Calibration** | closeness of actual ÷ estimate to 1.0 | Punishes over- *and* under-estimation, so it cancels the inflation incentive from Throughput |
+| **Estimate stability** | upward drift in your median estimate against the 12-week baseline, inverted | Inflating estimates to farm Throughput shows up here the same week |
 
-Each 0–100, plus a week grade and a 12-week sparkline. Calibration is the
-keystone — it's what makes the other dials safe to score.
+Each 0–100, plus a week grade and a 12-week sparkline.
+
+**Calibration was going to be the fourth dial and the keystone** — the thing
+that made scoring Throughput safe, because over- and under-estimating both cost
+you points. §7.3 chose no check-in, so there are no actuals and no Calibration
+(§3.6). Estimate stability is the replacement, and it's worth being honest
+about the downgrade:
+
+- It detects *drift*, not *error*. Estimates that have been wrong by the same
+  factor for a year look perfectly stable.
+- So **Throughput is now the weakest of the four**. Inflating estimates buys a
+  real bump for a few weeks until your own rolling median absorbs it. The
+  exposure is bounded, not eliminated.
+- Blocks-to-completion (§3.6) is the honest accuracy *finding*, but it must not
+  become a dial: scoring it would reward inflating estimates, since padded
+  blocks finish within their first block more often. Report it, never score it.
 
 Two corrections to my own table: Throughput is *planned* minutes completed, per
 §3.1's rule — I broke that rule two sections after writing it. And Deadline
@@ -827,15 +866,20 @@ Streaks beat points, and these are the ones worth keeping:
 - **Straight-shooter**: consecutive observed days with zero self-deferred
   due-date pushes.
 - **Clean slate**: consecutive observed days ending with no overdue tasks.
-- **Kept promises**: consecutive checked-in days where every scheduled block
-  was honored.
-- **Moved**: consecutive checked-in weeks hitting the full fitness quota
-  (§2.2) — ties Theme A into Theme C for free.
+- **Kept promises**: consecutive days where every scheduled block's task was
+  actually completed.
+- **Moved**: consecutive weeks hitting the full fitness quota (§2.2) — ties
+  Theme A into Theme C for free.
 - **Protected**: consecutive days with no out-of-window block placed (§3.7).
   The inverse of boundary erosion, and the only honest way to gamify it.
 
-Missing observations pause a streak; they do not count as successful days.
-Calendar presence alone proves that a block was planned, not that it happened.
+All five rest on completion, not attendance: with no check-in (§7.3) we can
+prove a task was *closed*, never that you spent the time. A streak is therefore
+about finishing what you planned, which is the behaviour worth rewarding anyway.
+
+Missing observations pause a streak; they do not count as successful days. A day
+with no run and no `snapshot` is unobserved, and calendar presence alone proves
+a block was planned, not that anything happened in it.
 A paused streak must show the gap rather than implying continuity across time
 nobody observed — `straight-shooter 4d (2 days unobserved)`. Otherwise a
 fortnight's holiday silently becomes a two-week streak, and the `snapshot` job
@@ -850,7 +894,7 @@ Week 36 · followed 12/18 blocks · 3 pushes · straight-shooter 4d · runs 2/3
 ### 4.4 Badges, sparingly
 
 Only ones that describe something real: *Estimator* (10 consecutive tasks
-within 20%), *Closer* (cleared 5 tasks older than 60 days), *Clean Week* (a
+completed inside their first block), *Closer* (cleared 5 tasks older than 60 days), *Clean Week* (a
 full week with no observed due-date changes), *Consistent* (4 straight weeks
 at fitness quota). They are recomputed from the journal instead of accumulating
 hidden state. The goal is transparent rules, not cheat prevention.
@@ -880,8 +924,8 @@ Ordered by dependency and by how soon each pays off.
 | **1** | **Run journal** + `snapshot` + launchd cadence + `review --week` on data we already have (capacity, throughput, backlog flow, lead time, follow-through) | 0 | Immediate, and **starts the clock on history** |
 | **2** | `Demand` abstraction + event identity migration; lanes + placement passes + configured fitness blocks (quotas, spacing) | 0 | The other half of your ask, no external deps |
 | **3** | Churn + stagnation detection; `--triage` (print-only first) | 1 + ~3 weeks of journal | The "why do I keep pushing this" answer |
-| **4** | `checkin` → actuals → calibration → `schedule --calibrate` | 1 | Estimates stop being fiction |
-| **5** | Scorecard, streaks, one-line status, badges | 1, 3, 4 | Motivation, with the metrics honest by then |
+| **4** | Inference from completions: blocks-to-completion, estimate drift, upward-revision detection | 1 | Estimates get a reality check without a stopwatch |
+| **5** | Scorecard (four dials), streaks, one-line status, badges | 1, 3, 4 | Motivation, with the metrics honest by then |
 | **6** | `Demand` sources: generic ICS importer → intervals.icu/Garmin; GitHub; reading list | 2 | Real training plans, and everything else for free |
 
 Each phase ships as a usable vertical slice with an acceptance check:
@@ -893,8 +937,8 @@ Each phase ships as a usable vertical slice with an acceptance check:
 | **1** | The same review regenerates byte-identically from the same journal; a failed or interrupted append never affects the calendar; `snapshot` makes no mutating API call; a truncated last line and an unknown future field both parse; every number prints its coverage |
 | **2** | A 3×/week template places exactly 3 sessions, respects spacing, produces no duplicates across repeated runs, adopts nothing it doesn't own, survives a failed source without deleting a single event, and reports an unplaceable session instead of silently dropping it |
 | **3** | Churn counts reproduce by hand from two journal records; `--triage` prints commands and touches nothing; every stagnation entry carries a prescribed action |
-| **4** | A skipped check-in produces no calibration data (blank ≠ estimate); `--calibrate` prints the factor it applied and the sample size behind it; no Taskwarrior write |
-| **5** | Every score recomputes from the journal alone; unobserved days pause streaks and are shown as gaps; the whole scoreboard switches off in one config line |
+| **4** | Every accuracy number reproduces by hand from the journal plus `end` timestamps, prints its sample size, and is labelled a completion-derived estimate rather than measured time; no Taskwarrior write |
+| **5** | Every score recomputes from the journal alone; unobserved days pause streaks and are shown as gaps; blocks-to-completion is reported but never scored; the whole scoreboard switches off in one config line |
 | **6** | A source that returns HTTP 500, an empty feed, and a duplicate UID are each distinguishable from "everything was cancelled" |
 
 Three notes on the order:
@@ -996,17 +1040,20 @@ migration must not accidentally make every pre-migration event look like one.
    Follow-up worth deciding before Phase 2: **do you want a dedicated fitness
    calendar?** It's the only unambiguous way to recognise sessions you schedule
    by hand, and it makes §7.4 partly moot.
-3. **Will you do the daily check-in?** Honest answer changes the roadmap: yes →
-   Phase 4 unlocks calibration and half of Theme C. No → we build the weaker
-   calendar-inference proxy and drop the Calibration dial.
-4. **Calendars.** One calendar for tasks + training, or a second calendar for
-   personal/fitness? (Multi-calendar support is a real change: busy-time reads
-   would need to span both.)
-5. **Where do reviews live?** Terminal only, or Markdown into `~/notes`
-   (Obsidian?), or a calendar event, or emailed weekly?
-6. **Gamification tone.** Four dials and streaks (§4.2/§4.3), or do you actually
-   want XP/levels/badges? I've argued for the former — but you know what
-   motivates you.
+3. ~~**Will you do the daily check-in?**~~ **Answered: no.** So no actuals, no
+   `--calibrate`, and no Calibration dial. Replaced by blocks-to-completion and
+   estimate drift, both derived from completions (§3.6, §4.2). The cost is that
+   systematic estimate error in *minutes* stays invisible.
+4. ~~**Calendars.**~~ **Answered: one calendar for everything.** No
+   multi-calendar busy reads needed, and meeting load is complete rather than
+   partial (§3.2). The cost lands on §2.2: recognising hand-scheduled training
+   now needs explicit patterns or `--adopt`.
+5. ~~**Where do reviews live?**~~ **Answered: terminal only.** `--md` and a
+   Friday launchd job are deferred; the review renders at the end so a second
+   output format stays a renderer rather than a rewrite (§3.8).
+6. ~~**Gamification tone.**~~ **Answered: four dials and streaks.** Note the
+   interaction with question 3: dropping the check-in removed Calibration, which
+   was the dial that made Throughput safe to score (§4.2).
 7. **Is writing to Taskwarrior acceptable** for triage (§3.4), or should we stay
    strictly read-only and just print the commands?
 8. ~~**The 9% problem.**~~ **Answered:** the low aggregate is historical. Since
