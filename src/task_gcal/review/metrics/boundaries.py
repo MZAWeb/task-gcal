@@ -99,6 +99,30 @@ def _capacity_bought(raw: str, settings) -> int:
     return minutes
 
 
+def _in_play(facts) -> list:
+    """Tasks this period actually involved.
+
+    The override UDA carries no date of its own, so counting it across every
+    task Taskwarrior remembers would put an all-time total inside a
+    per-period section — `review --week` and `review --week --last 8` would
+    print identical override counts, and a project that bought an evening a
+    year ago could become this week's closing recommendation.
+
+    "In play" is the closest honest approximation: a task with a block in the
+    period, or one created or closed inside it.
+    """
+    with_blocks = {
+        b.task_uuid for b in facts.blocks_in_period() if b.task_uuid
+    }
+    return [
+        t
+        for t in facts.tasks
+        if t.uuid in with_blocks
+        or facts.period.contains(t.entry)
+        or facts.period.contains(t.end)
+    ]
+
+
 def build(facts) -> Section:
     if not facts.calendar_ok:
         return Section(
@@ -132,7 +156,7 @@ def build(facts) -> Section:
     overrides = Counter()
     bought = 0
     payers: Counter = Counter()
-    for task in facts.tasks:
+    for task in _in_play(facts):
         if not task.overrides_raw:
             continue
         kind = _classify(task.overrides_raw, settings)
@@ -141,12 +165,27 @@ def build(facts) -> Section:
             bought += _capacity_bought(task.overrides_raw, settings)
             payers[task.project or "(no project)"] += 1
 
+    # One shape whatever the week held, so a JSON consumer doesn't have to
+    # guess which keys exist.
+    measurements = {
+        "outside_minutes": outside_minutes,
+        "evening_minutes": evening_minutes,
+        "weekend_minutes": weekend_minutes,
+        "evenings": len(evenings),
+        "weekend_days": len(weekend_days),
+        "widening_overrides": overrides["widening"],
+        "narrowing_overrides": overrides["narrowing"],
+        "density_overrides": overrides["density"],
+        "capacity_bought_minutes": bought,
+        "paid_for_by": dict(payers.most_common()),
+    }
+
     if not outside_minutes and not overrides:
         return Section(
             key=KEY,
             label="Boundaries",
             summary="nothing placed outside working hours",
-            data={"outside_minutes": 0, "evenings": 0, "weekend_days": 0},
+            data=measurements,
         )
 
     pieces = []
@@ -171,6 +210,8 @@ def build(facts) -> Section:
         f"{humanize_minutes(weekend_minutes)}",
         f"Overrides              {overrides['widening']} widening, "
         f"{overrides['narrowing']} narrowing, {overrides['density']} density",
+        "  counted on tasks this period involved; the UDA carries no date "
+        "of its own",
         f"Capacity bought        {humanize_minutes(bought)} of extra window "
         "(intent, not time spent)",
     ]
@@ -208,18 +249,7 @@ def build(facts) -> Section:
                 total=len(period.days()),
             ),
         ),
-        data={
-            "outside_minutes": outside_minutes,
-            "evening_minutes": evening_minutes,
-            "weekend_minutes": weekend_minutes,
-            "evenings": len(evenings),
-            "weekend_days": len(weekend_days),
-            "widening_overrides": overrides["widening"],
-            "narrowing_overrides": overrides["narrowing"],
-            "density_overrides": overrides["density"],
-            "capacity_bought_minutes": bought,
-            "paid_for_by": dict(payers.most_common()),
-        },
+        data=measurements,
         suggestions=suggestions,
     )
 

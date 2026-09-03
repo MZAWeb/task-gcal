@@ -261,18 +261,42 @@ def test_only_the_part_outside_working_hours_counts(review):
 
 
 def test_a_widening_override_is_counted_as_widening(review):
-    review.tasks(a_task(uuid="a", overrides="work_end_hour=21"))
+    review.tasks(a_task(uuid="a", overrides="work_end_hour=21", entry=at(0, 9)))
     section = data(review, boundaries.KEY)
 
     assert section.data["widening_overrides"] == 1
     assert section.data["capacity_bought_minutes"] == 180
 
 
+def test_an_override_from_another_period_is_not_counted(review):
+    # The UDA carries no date, so counting it across all of Taskwarrior would
+    # put an all-time total inside a per-period section — and let a project
+    # that bought an evening a year ago become this week's recommendation.
+    review.tasks(
+        a_task(
+            uuid="old",
+            overrides="work_end_hour=21",
+            status="completed",
+            entry=at(-90, 9),
+            end=at(-60, 9),
+        )
+    )
+    assert data(review, boundaries.KEY).data["widening_overrides"] == 0
+
+
+def test_an_override_on_a_task_with_a_block_this_period_is_counted(review):
+    review.tasks(
+        a_task(uuid="a", overrides="work_end_hour=21", entry=at(-90, 9))
+    )
+    review.blocks(a_block("a", at(0, 19), 60))
+    assert data(review, boundaries.KEY).data["widening_overrides"] == 1
+
+
 def test_a_narrowing_override_is_not_erosion(review):
     # The largest single group in the real data narrows the window. Counting
     # overrides would report it as a boundary violation; classifying intent
     # reports it as the opposite.
-    review.tasks(a_task(uuid="a", overrides="work_days=4"))
+    review.tasks(a_task(uuid="a", overrides="work_days=4", entry=at(0, 9)))
     section = data(review, boundaries.KEY)
 
     assert section.data["narrowing_overrides"] == 1
@@ -280,7 +304,7 @@ def test_a_narrowing_override_is_not_erosion(review):
 
 
 def test_a_density_override_is_neither(review):
-    review.tasks(a_task(uuid="a", overrides="buffer_minutes=0"))
+    review.tasks(a_task(uuid="a", overrides="buffer_minutes=0", entry=at(0, 9)))
     section = data(review, boundaries.KEY)
 
     assert section.data["density_overrides"] == 1
@@ -289,21 +313,23 @@ def test_a_density_override_is_neither(review):
 
 def test_an_overdue_horizon_override_belongs_to_deadlines_not_here(review):
     # Extending a deadline's tolerance is deferral, not boundary loss.
-    review.tasks(a_task(uuid="a", overrides="overdue_horizon_days=60"))
+    review.tasks(a_task(uuid="a", overrides="overdue_horizon_days=60", entry=at(0, 9)))
     section = data(review, boundaries.KEY)
     assert section.data["widening_overrides"] == 0
     assert section.data["narrowing_overrides"] == 0
 
 
 def test_a_weekend_adding_override_is_widening(review):
-    review.tasks(a_task(uuid="a", overrides="work_days=0,1,2,3,4,5"))
+    review.tasks(a_task(uuid="a", overrides="work_days=0,1,2,3,4,5", entry=at(0, 9)))
     assert data(review, boundaries.KEY).data["widening_overrides"] == 1
 
 
 def test_the_project_that_took_the_weekend_is_named(review):
     review.tasks(
-        a_task(uuid="a", project="PIR", overrides="work_end_hour=21"),
-        a_task(uuid="b", project="PIR", overrides="work_end_hour=21"),
+        a_task(uuid="a", project="PIR", overrides="work_end_hour=21",
+               entry=at(0, 9)),
+        a_task(uuid="b", project="PIR", overrides="work_end_hour=21",
+               entry=at(1, 9)),
     )
     review.whole_week().blocks(a_block("a", at(5, 10), 90))
     section = data(review, boundaries.KEY)
@@ -314,7 +340,7 @@ def test_the_project_that_took_the_weekend_is_named(review):
 
 
 def test_a_malformed_override_does_not_crash_the_metric(review):
-    review.tasks(a_task(uuid="a", overrides="work_end_hour=elevenses"))
+    review.tasks(a_task(uuid="a", overrides="work_end_hour=elevenses", entry=at(0, 9)))
     assert data(review, boundaries.KEY).measured is True
 
 
