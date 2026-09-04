@@ -26,6 +26,32 @@ from .config import (
 )
 
 
+@dataclass(frozen=True)
+class Expectation:
+    """What we last left an event looking like.
+
+    Stamped onto the event itself rather than kept on our side, which is what
+    lets a later run notice that something else moved or renamed a block
+    without reading any history at all. It therefore survives a deleted
+    journal and works from a second machine.
+    """
+
+    start: datetime
+    end: datetime
+    # None for a stamp written before summaries were included, which reads as
+    # "we don't know what we called it" rather than "it was renamed".
+    summary: Optional[str] = None
+
+    def as_private(self) -> dict[str, str]:
+        out = {
+            EXPECTED_START: self.start.astimezone(timezone.utc).isoformat(),
+            EXPECTED_END: self.end.astimezone(timezone.utc).isoformat(),
+        }
+        if self.summary is not None:
+            out[EXPECTED_SUMMARY] = self.summary
+        return out
+
+
 @dataclass
 class CalEvent:
     id: str
@@ -34,6 +60,26 @@ class CalEvent:
     end: datetime
     task_uuid: Optional[str]
     raw: dict
+
+    @property
+    def expectation(self) -> Optional[Expectation]:
+        """Where we last left this block, or None if we never stamped it.
+
+        Unstamped means "written by an older version": treated as unknown
+        rather than as drift, so upgrading doesn't report a wave of hand-moves
+        that never happened.
+        """
+        priv = (self.raw.get("extendedProperties") or {}).get("private") or {}
+        start = _parse_stamp(priv.get(EXPECTED_START))
+        end = _parse_stamp(priv.get(EXPECTED_END))
+        if start is None or end is None:
+            return None
+        summary = priv.get(EXPECTED_SUMMARY)
+        return Expectation(
+            start=start,
+            end=end,
+            summary=summary if isinstance(summary, str) else None,
+        )
 
 
 # Field masks: keep responses small and avoid downloading attendee
@@ -48,6 +94,14 @@ _OUR_FIELDS = (
     "items(id,summary,description,colorId,visibility,start,end,"
     "attendees,extendedProperties)"
 )
+
+# Private property names for the expectation stamp. Private properties are
+# invisible to anyone we invite, and Google merges them on patch — but we
+# re-send `scheduler` with every stamp anyway, because a merge that turned out
+# to be a replace would make our own events unfindable.
+EXPECTED_START = "expectedStart"
+EXPECTED_END = "expectedEnd"
+EXPECTED_SUMMARY = "expectedSummary"
 
 
 def _write_secure(path, content: str) -> None:
@@ -130,10 +184,34 @@ def _ensure_credentials(*, allow_interactive: bool = True) -> Credentials:
     return creds
 
 
+def _parse_stamp(raw) -> Optional[datetime]:
+    """Parse one of our own expectation stamps; None if absent or unreadable."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(
+            timezone.utc
+        )
+    except ValueError:
+        return None
+
+
 def _parse_when(node: dict) -> Optional[datetime]:
     if "dateTime" not in node:
         return None
     return dtparser.isoparse(node["dateTime"]).astimezone(timezone.utc)
+
+
+def _private_props(
+    *, task_uuid: Optional[str], expect: Optional[Expectation]
+) -> dict[str, str]:
+    """Our private properties: the tags that make an event ours, plus a stamp."""
+    props = {"scheduler": SCHEDULER_TAG}
+    if task_uuid:
+        props["taskUuid"] = task_uuid
+    if expect is not None:
+        props.update(expect.as_private())
+    return props
 
 
 def _is_declined_by_self(raw: dict) -> bool:
@@ -261,10 +339,10 @@ class GCal:
             "start": {"dateTime": start.astimezone(timezone.utc).isoformat()},
             "end": {"dateTime": end.astimezone(timezone.utc).isoformat()},
             "extendedProperties": {
-                "private": {
-                    "scheduler": SCHEDULER_TAG,
-                    "taskUuid": task_uuid,
-                }
+                "private": _private_props(
+                    task_uuid=task_uuid,
+                    expect=Expectation(start=start, end=end, summary=summary),
+                )
             },
         }
         kwargs: dict = {}
@@ -290,12 +368,19 @@ class GCal:
         color_id: Optional[str] = None,
         visibility: Optional[str] = None,
         attendees: Optional[list[dict]] = None,
+        expect: Optional[Expectation] = None,
+        task_uuid: Optional[str] = None,
     ) -> bool:
         """Patch an event. Returns False if the event was already gone.
 
         `attendees`, when given, is the full desired attendee list (the
         API replaces the array wholesale); pass existing + new to add
         people without dropping anyone. Supplying it emails the invitees.
+
+        `expect` re-stamps what we're leaving behind, and must be given
+        whenever the time or summary is written — otherwise the stamp would
+        still describe the old position and the next run would read our own
+        edit as someone else's.
         """
         body: dict = {}
         if summary is not None:
@@ -306,6 +391,10 @@ class GCal:
             body["start"] = {"dateTime": start.astimezone(timezone.utc).isoformat()}
         if end is not None:
             body["end"] = {"dateTime": end.astimezone(timezone.utc).isoformat()}
+        if expect is not None:
+            body["extendedProperties"] = {
+                "private": _private_props(task_uuid=task_uuid, expect=expect)
+            }
         if color_id is not None:
             body["colorId"] = color_id
         if visibility is not None:
@@ -328,6 +417,22 @@ class GCal:
             if e.resp.status in (404, 410):
                 return False
             raise
+
+    def adopt_position(self, event: CalEvent, *, summary: str) -> bool:
+        """Re-stamp our expectation to where the event now is.
+
+        Called after we notice someone moved a block and decide to let it
+        stay. The stamp is what makes drift a one-off observation rather than
+        a permanent one: without this, the same hand-move would be reported
+        again on every run for as long as the block existed.
+        """
+        return self.patch_event(
+            event.id,
+            expect=Expectation(
+                start=event.start, end=event.end, summary=summary
+            ),
+            task_uuid=event.task_uuid,
+        )
 
     def delete_event(self, event_id: str) -> bool:
         """Delete; treat 404/410 as success (already gone)."""

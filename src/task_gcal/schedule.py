@@ -15,9 +15,10 @@ from typing import Optional
 from googleapiclient.errors import HttpError
 
 from .config import Settings
-from .gcal import CalEvent, GCal
+from .gcal import CalEvent, Expectation, GCal
 from .changes import harvest as harvest_changes
 from .guard import removal_guard_error
+from .intervals import same_instant
 from .journal import MODE_SCHEDULE, PlacementObservation, record_run
 from .placement import (
     Decision,
@@ -60,10 +61,6 @@ def event_description(t: TaskInfo, tz: tzinfo) -> str:
         "Managed by task-gcal. Edits to time/title may be overwritten on next run."
     )
     return "\n".join(parts)
-
-
-def _almost_equal(a: datetime, b: datetime) -> bool:
-    return a.replace(microsecond=0) == b.replace(microsecond=0)
 
 
 # ---------------------------------------------------------------------------
@@ -109,8 +106,8 @@ def _apply_decision(
         event_id = keeper.id
         need_summary = keeper.summary != summary
         need_time = not (
-            _almost_equal(keeper.start, d.start_utc)
-            and _almost_equal(keeper.end, d.end_utc)
+            same_instant(keeper.start, d.start_utc)
+            and same_instant(keeper.end, d.end_utc)
         )
         need_desc = (keeper.raw.get("description") or "") != description
         need_color = keeper.raw.get("colorId") != ts.event_color_id
@@ -144,6 +141,19 @@ def _apply_decision(
                         if need_attendees
                         else None
                     ),
+                    # Re-stamp whenever we write something the stamp
+                    # describes, and only then: a stamp left behind after a
+                    # move would read as someone else's edit next run, and one
+                    # written on an untouched event would patch every event on
+                    # every run.
+                    expect=(
+                        Expectation(
+                            start=d.start_utc, end=d.end_utc, summary=summary
+                        )
+                        if need_time or need_summary
+                        else None
+                    ),
+                    task_uuid=t.uuid,
                 )
                 if not ok:
                     # Event vanished between list and patch; recreate.

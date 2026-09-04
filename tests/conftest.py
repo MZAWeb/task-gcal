@@ -17,7 +17,7 @@ import pytest
 from task_gcal import schedule as schedule_mod
 from task_gcal import taskw as taskw_mod
 from task_gcal.config import Settings
-from task_gcal.gcal import CalEvent
+from task_gcal.gcal import CalEvent, Expectation
 
 # Monday 2026-09-07 09:00 UTC: the first minute of a default working day, so a
 # task with room today lands at exactly NOW and the arithmetic stays readable.
@@ -133,8 +133,18 @@ def managed_event(
     color_id: str = "9",
     visibility: str = "private",
     attendees: Optional[list[dict]] = None,
+    expect: Optional[Expectation] = None,
 ) -> CalEvent:
-    """A scheduler-owned event, with the `raw` fields reconcile diffs against."""
+    """A scheduler-owned event, with the `raw` fields reconcile diffs against.
+
+    Stamped where it sits unless told otherwise, which is what an event we
+    wrote and nobody has touched looks like. Pass `expect` (or use
+    `hand_moved`) to build one that someone has moved since.
+    """
+    if expect is None:
+        expect = Expectation(start=start, end=end, summary=summary)
+    private = {"scheduler": "task-gcal", "taskUuid": task_uuid}
+    private.update(expect.as_private())
     raw: dict = {
         "id": id,
         "summary": summary,
@@ -143,9 +153,7 @@ def managed_event(
         "visibility": visibility,
         "start": {"dateTime": start.isoformat()},
         "end": {"dateTime": end.isoformat()},
-        "extendedProperties": {
-            "private": {"scheduler": "task-gcal", "taskUuid": task_uuid}
-        },
+        "extendedProperties": {"private": private},
     }
     if attendees is not None:
         raw["attendees"] = attendees
@@ -157,6 +165,38 @@ def managed_event(
         task_uuid=task_uuid,
         raw=raw,
     )
+
+
+def hand_moved(
+    event: CalEvent,
+    *,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    summary: Optional[str] = None,
+) -> CalEvent:
+    """The same event after someone dragged or renamed it in the calendar UI.
+
+    The stamp keeps saying where *we* left it, which is exactly the state a
+    later run has to notice.
+    """
+    return managed_event(
+        id=event.id,
+        task_uuid=event.task_uuid,
+        start=start or event.start,
+        end=end or event.end,
+        summary=summary or event.summary,
+        description=event.raw.get("description", ""),
+        expect=event.expectation,
+    )
+
+
+def unstamped(event: CalEvent) -> CalEvent:
+    """An event written before we started stamping expectations on them."""
+    private = dict(event.raw["extendedProperties"]["private"])
+    for key in ("expectedStart", "expectedEnd", "expectedSummary"):
+        private.pop(key, None)
+    event.raw["extendedProperties"]["private"] = private
+    return event
 
 
 class FakeGCal:
@@ -250,6 +290,8 @@ class FakeGCal:
         color_id=None,
         visibility=None,
         attendees=None,
+        expect=None,
+        task_uuid=None,
     ) -> bool:
         body = {
             k: v
@@ -261,6 +303,7 @@ class FakeGCal:
                 color_id=color_id,
                 visibility=visibility,
                 attendees=attendees,
+                expect=expect,
             ).items()
             if v is not None
         }
@@ -284,7 +327,18 @@ class FakeGCal:
                 ev.raw["visibility"] = visibility
             if attendees is not None:
                 ev.raw["attendees"] = attendees
+            if expect is not None:
+                ev.raw["extendedProperties"]["private"].update(expect.as_private())
         return True
+
+    def adopt_position(self, event, *, summary) -> bool:
+        return self.patch_event(
+            event.id,
+            expect=Expectation(
+                start=event.start, end=event.end, summary=summary
+            ),
+            task_uuid=event.task_uuid,
+        )
 
     def delete_event(self, event_id) -> bool:
         self.deleted.append(event_id)

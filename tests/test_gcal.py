@@ -13,7 +13,7 @@ from googleapiclient.errors import HttpError
 
 from task_gcal import gcal as gcal_mod
 from task_gcal.config import SCHEDULER_TAG, Settings
-from task_gcal.gcal import GCal
+from task_gcal.gcal import CalEvent, Expectation, GCal
 
 UTC = timezone.utc
 
@@ -111,7 +111,8 @@ def test_created_events_carry_the_scheduler_tag_and_task_uuid(client):
     )
     body = client.events.insert_kwargs[0]["body"]
     private = body["extendedProperties"]["private"]
-    assert private == {"scheduler": SCHEDULER_TAG, "taskUuid": "u1"}
+    assert private["scheduler"] == SCHEDULER_TAG
+    assert private["taskUuid"] == "u1"
 
 
 def test_created_events_are_private_and_timed(client):
@@ -157,6 +158,92 @@ def test_attendees_are_emailed_when_present(client):
 
 
 # ---------------------------------------------------------------------------
+# The expectation stamp
+# ---------------------------------------------------------------------------
+
+def test_a_created_event_records_where_we_left_it(client):
+    client.create_event(
+        task_uuid="u1", summary="write it up", description="d",
+        start=dt(9), end=dt(10), color_id="9",
+    )
+    private = client.events.insert_kwargs[0]["body"]["extendedProperties"][
+        "private"
+    ]
+    assert private["expectedStart"] == "2026-09-07T09:00:00+00:00"
+    assert private["expectedEnd"] == "2026-09-07T10:00:00+00:00"
+    assert private["expectedSummary"] == "write it up"
+
+
+def test_the_stamp_is_read_back_off_the_event():
+    event = an_event(
+        private={
+            "expectedStart": "2026-09-07T09:00:00Z",
+            "expectedEnd": "2026-09-07T10:00:00Z",
+            "expectedSummary": "write it up",
+        }
+    )
+    assert event.expectation == Expectation(
+        start=dt(9), end=dt(10), summary="write it up"
+    )
+
+
+def test_an_unstamped_event_reads_as_unknown_not_as_drift():
+    assert an_event(private={"taskUuid": "u1"}).expectation is None
+
+
+def test_an_unreadable_stamp_reads_as_unknown():
+    event = an_event(
+        private={"expectedStart": "sometime tuesday", "expectedEnd": "later"}
+    )
+    assert event.expectation is None
+
+
+def test_a_stamp_from_before_summaries_still_gives_the_times():
+    event = an_event(
+        private={
+            "expectedStart": "2026-09-07T09:00:00Z",
+            "expectedEnd": "2026-09-07T10:00:00Z",
+        }
+    )
+    assert event.expectation == Expectation(start=dt(9), end=dt(10))
+    assert event.expectation.summary is None
+
+
+def test_restamping_keeps_the_tags_that_make_the_event_ours(client):
+    # If Google ever replaced the private map instead of merging it, dropping
+    # these would make our own events invisible to us.
+    client.adopt_position(an_event(), summary="write it up")
+    private = client.events.patch_kwargs[0]["body"]["extendedProperties"][
+        "private"
+    ]
+    assert private["scheduler"] == SCHEDULER_TAG
+    assert private["taskUuid"] == "u1"
+
+
+def test_adopting_a_position_stamps_where_the_event_now_is(client):
+    moved = an_event(start=dt(14), end=dt(15))
+    assert client.adopt_position(moved, summary="write it up") is True
+    body = client.events.patch_kwargs[0]["body"]
+    private = body["extendedProperties"]["private"]
+    assert private["expectedStart"] == "2026-09-07T14:00:00+00:00"
+    assert private["expectedEnd"] == "2026-09-07T15:00:00+00:00"
+    # Adoption means leaving the event alone; only the stamp moves.
+    assert "start" not in body and "end" not in body
+
+
+def an_event(*, start=None, end=None, summary="write it up", private=None):
+    private = {"taskUuid": "u1"} if private is None else private
+    return CalEvent(
+        id="ev1",
+        summary=summary,
+        start=start or dt(9),
+        end=end or dt(10),
+        task_uuid=private.get("taskUuid"),
+        raw={"extendedProperties": {"private": private}},
+    )
+
+
+# ---------------------------------------------------------------------------
 # patch_event
 # ---------------------------------------------------------------------------
 
@@ -180,6 +267,27 @@ def test_patch_reraises_other_errors(client):
     client.events.patch_error = http_error(500)
     with pytest.raises(HttpError):
         client.patch_event("ev1", summary="new")
+
+
+def test_a_patch_that_writes_a_time_restamps_the_expectation(client):
+    client.patch_event(
+        "ev1",
+        start=dt(11),
+        end=dt(12),
+        expect=Expectation(start=dt(11), end=dt(12), summary="s"),
+        task_uuid="u1",
+    )
+    private = client.events.patch_kwargs[0]["body"]["extendedProperties"][
+        "private"
+    ]
+    assert private["expectedStart"] == "2026-09-07T11:00:00+00:00"
+
+
+def test_a_patch_that_leaves_the_time_alone_does_not_restamp(client):
+    # Otherwise every run would patch every event, and "unchanged" would stop
+    # meaning anything.
+    client.patch_event("ev1", color_id="4")
+    assert "extendedProperties" not in client.events.patch_kwargs[0]["body"]
 
 
 def test_patching_attendees_emails_them(client):

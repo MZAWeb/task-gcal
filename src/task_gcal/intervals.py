@@ -15,6 +15,16 @@ from typing import Iterable, Optional
 Interval = tuple[datetime, datetime]
 
 
+def same_instant(a: datetime, b: datetime) -> bool:
+    """Equal to the second.
+
+    Google stores event times to the second, so a comparison against one of
+    our own microsecond-precision datetimes has to round or it will report a
+    difference that only exists in our arithmetic.
+    """
+    return a.replace(microsecond=0) == b.replace(microsecond=0)
+
+
 def merge(intervals: Iterable[Interval]) -> list[Interval]:
     """Collapse overlapping and touching intervals into disjoint ones.
 

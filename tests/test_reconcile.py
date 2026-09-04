@@ -740,6 +740,51 @@ def test_only_the_fields_that_changed_are_patched(harness):
 
 
 # ---------------------------------------------------------------------------
+# What we left behind
+# ---------------------------------------------------------------------------
+
+def test_a_placed_event_records_where_we_left_it(harness):
+    harness.tasks(task_row(uuid="u1", due=WED_5PM, estimate=60))
+    harness.run()
+
+    expectation = harness.gcal.event_for("u1").expectation
+    assert (expectation.start, expectation.end) == (at(0, 9), at(0, 10))
+    assert expectation.summary == "a task"
+
+
+def test_moving_a_block_moves_what_we_expect_to_find(harness):
+    # If the stamp stayed where the block used to be, the next run would read
+    # our own move as somebody else's edit.
+    settled = managed_event(id="ev1", task_uuid="u1", start=at(1, 14), end=at(1, 15))
+    harness.tasks(task_row(uuid="u1", due=FRI_5PM, estimate=60)).events(settled)
+    harness.busy((at(1, 14), at(1, 15)))
+    harness.run()
+
+    moved = harness.gcal.event_for("u1")
+    assert moved.expectation.start == moved.start
+
+
+def test_renaming_a_block_updates_the_title_we_expect(harness):
+    harness.tasks(task_row(uuid="u1", description="original", due=FRI_5PM, estimate=60))
+    harness.run()
+    harness.tasks(task_row(uuid="u1", description="renamed", due=FRI_5PM, estimate=60))
+    harness.run()
+
+    assert harness.gcal.event_for("u1").expectation.summary == "renamed"
+
+
+def test_a_run_that_changes_nothing_leaves_the_stamp_alone(harness):
+    # Re-stamping an untouched event would mean patching every event on every
+    # run, which is the cost `settle_days` exists to avoid.
+    harness.tasks(task_row(uuid="u1", due=WED_5PM, estimate=60))
+    harness.run()
+    harness.gcal.patched.clear()
+    harness.run()
+
+    assert harness.gcal.patched == []
+
+
+# ---------------------------------------------------------------------------
 # Dry run
 # ---------------------------------------------------------------------------
 
