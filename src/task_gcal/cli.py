@@ -317,10 +317,6 @@ def _build_parser() -> argparse.ArgumentParser:
              "resolve each. Prints commands; changes nothing.",
     )
     review_p.add_argument(
-        "--reflect", action="store_true",
-        help="Ask about unexplained missed commitments before reporting.",
-    )
-    review_p.add_argument(
         "--format", dest="fmt", default="terminal", choices=_FORMAT_CHOICES,
         help="Output format (default: terminal).",
     )
@@ -395,7 +391,6 @@ def _run_review(args, settings) -> int:
             open_in_browser=args.open_in_browser,
             output=Path(args.output) if args.output else None,
             triage=args.triage,
-            reflect=args.reflect,
         ),
     )
 

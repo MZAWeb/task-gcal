@@ -41,10 +41,6 @@ class ReviewRequest:
     output: Optional[Path] = None
     # Print the stagnation queue as pasteable commands instead of a report.
     triage: bool = False
-    # Run the retrospective prompts before rendering, so the weekly review can
-    # be the moment missing context gets captured. Off by default, which keeps
-    # normal output scriptable.
-    reflect: bool = False
 
 
 def build(facts: Facts) -> Review:
@@ -68,14 +64,6 @@ def run(
     now = now or utc_now()
     tz = settings.resolve_timezone()
     period = resolve(request.kind, tz, now=now, offset=request.offset)
-
-    if request.reflect:
-        # Before collecting, so answers given now appear in the report the
-        # user is about to read.
-        from ..checkin import checkin
-
-        checkin(settings, since=period.start, now=now, gcal=gcal)
-        print()
 
     facts = collect(settings, period, now=now, gcal=gcal)
 

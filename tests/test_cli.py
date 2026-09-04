@@ -227,14 +227,21 @@ def test_the_default_checkin_window_matches_the_episode_finder():
     assert cli_mod.DEFAULT_CHECKIN_DAYS == DEFAULT_SINCE_DAYS
 
 
-def test_triage_reflect_and_all_are_review_flags():
-    args = review_args("--triage", "--reflect", "--all")
-    assert (args.triage, args.reflect, args.all_sections) == (True, True, True)
+def test_triage_and_all_are_review_flags():
+    args = review_args("--triage", "--all")
+    assert (args.triage, args.all_sections) == (True, True)
 
 
 def test_review_flags_default_to_off():
     args = review_args()
-    assert (args.triage, args.reflect, args.all_sections) == (False, False, False)
+    assert (args.triage, args.all_sections) == (False, False)
+
+
+def test_review_does_not_prompt():
+    # `checkin` is the one entry point to the retrospective. A review that
+    # could block on questions isn't a read-only document.
+    with pytest.raises(SystemExit):
+        review_args("--reflect")
 
 
 # ---------------------------------------------------------------------------

@@ -338,28 +338,18 @@ def test_the_default_is_the_headline_sections_only(runner):
     assert "capacity" in keys
 
 
-def test_reflect_asks_before_reporting(runner, monkeypatch):
-    order: list[str] = []
-    monkeypatch.setattr(
-        "task_gcal.checkin.checkin",
-        lambda *args, **kwargs: (order.append("checkin"), (0, None))[1],
-    )
-    runner.run(ReviewRequest(reflect=True))
-    order.append("report")
-
-    # Answers given now have to land in the report the user is about to read.
-    assert order == ["checkin", "report"]
-    assert "Week" in runner.out
-
-
-def test_reflect_is_off_by_default(runner, monkeypatch):
+def test_a_review_never_prompts(runner, monkeypatch):
+    # `checkin` is the one entry point to the retrospective. A review that
+    # could block on questions isn't a read-only document, and two ways in
+    # was two things to explain.
     called: list[str] = []
     monkeypatch.setattr(
         "task_gcal.checkin.checkin",
         lambda *args, **kwargs: (called.append("x"), (0, None))[1],
     )
     runner.run()
-    # Normal output stays scriptable: nothing prompts unless asked.
+    runner.run(ReviewRequest(triage=True))
+
     assert called == []
 
 

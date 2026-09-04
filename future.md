@@ -16,12 +16,18 @@
 >   useful coverage before anything is allowed to reward or penalise an
 >   answer.
 >
-> One deliberate deviation, from using it: §3 specifies two check-in
-> questions, "what happened" and "why". The stored record still has both —
-> the metrics need them apart — but the *prompt* asks once, offering the
-> five (outcome, reason) pairs that actually occur in plain language. `done`
-> and `cancelled` aren't offered at all: those get `task done` and
-> `task delete`. Two questions was twice the friction for no extra truth.
+> Two deliberate deviations, both from using it:
+>
+> - §3 specifies two check-in questions, "what happened" and "why". The
+>   stored record still has both — the metrics need them apart — but the
+>   *prompt* asks once, offering the five (outcome, reason) pairs that
+>   actually occur in plain language. `done` and `cancelled` aren't offered
+>   at all: those get `task done` and `task delete`. Two questions was twice
+>   the friction for no extra truth.
+> - `review --reflect` is gone. It was `checkin` followed by a report, which
+>   made two entry points to one interaction and gave `review` a mode that
+>   could block on questions. `task-gcal checkin && task-gcal review --week`
+>   is the same thing with nothing to explain.
 >
 > Kept as the argument for why the thing is shaped this way, which is worth
 > more than the plan was.

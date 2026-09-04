@@ -91,7 +91,6 @@ task-gcal review --week
 task-gcal review --month
 task-gcal review --week --last 1          # the week before this one
 task-gcal review --week --section capacity
-task-gcal review --week --reflect         # explain the misses first
 task-gcal review --triage                 # what needs a decision
 task-gcal review --month --format markdown -o notes/2026-09.md
 task-gcal review --week --format json
@@ -214,8 +213,8 @@ needed another sitting isn't a problem, and counting it would make good
 planning look like one.
 
 Run it daily, every few days, or not at all — reflections stay open until
-answered, so `task-gcal review --week --reflect` works just as well as a
-morning routine. Nothing here assumes a daily cadence, and reviews are
+answered, so running it alongside the weekly review works just as well as
+a morning routine. Nothing here assumes a daily cadence, and reviews are
 still measured without it.
 
 What it deliberately won't do:
