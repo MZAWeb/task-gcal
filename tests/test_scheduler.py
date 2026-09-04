@@ -277,36 +277,79 @@ def elapsed(slot) -> timedelta:
     return slot[1].astimezone(UTC) - slot[0].astimezone(UTC)
 
 
-def test_slot_length_is_wall_clock_not_elapsed_time():
-    """Documents current behavior, which is wrong across a DST transition.
+def test_a_spring_forward_window_holds_one_hour_less_than_it_looks():
+    """An estimate is a claim about real time, not about the wall clock.
 
-    `slot_start + timedelta(...)` on a zone-aware datetime advances the *wall
-    clock*, so a slot that spans a transition doesn't contain `duration`
-    minutes of real time. A 6h estimate placed over spring-forward gets 5 real
-    hours; over fall-back it gets 7. Harmless under the default 9-18 window
-    (nothing spans 01:00-02:00), latent as soon as lanes allow overnight work.
+    A 00:00-06:00 window on the night the clocks go forward is five hours long,
+    however it reads. So a 6h task doesn't fit, and a 5h one does — the numbers
+    a person would give if you asked them.
     """
-    spring = find(
-        minutes=6 * 60,
+    assert (
+        find(
+            minutes=6 * 60,
+            earliest=SPRING_EARLIEST,
+            deadline=SPRING_DEADLINE,
+            tz=LONDON,
+            **_OVERNIGHT,
+        )
+        is None
+    )
+
+    fits = find(
+        minutes=5 * 60,
         earliest=SPRING_EARLIEST,
         deadline=SPRING_DEADLINE,
         tz=LONDON,
         **_OVERNIGHT,
     )
-    assert spring is not None
-    assert spring[0].astimezone(LONDON).hour == 0
-    assert spring[1].astimezone(LONDON).hour == 6
-    assert elapsed(spring) == timedelta(hours=5)  # asked for 6
+    assert elapsed(fits) == timedelta(hours=5)
+    assert fits[0].astimezone(LONDON).hour == 0
+    assert fits[1].astimezone(LONDON).hour == 6
 
-    fall = find(
+
+def test_a_fall_back_slot_stops_after_the_hours_it_asked_for():
+    # The window is seven real hours on this night, so six fits with room to
+    # spare — and takes six, not the seven the wall clock would give it.
+    slot = find(
         minutes=6 * 60,
         earliest=FALL_EARLIEST,
         deadline=FALL_DEADLINE,
         tz=LONDON,
         **_OVERNIGHT,
     )
-    assert fall is not None
-    assert elapsed(fall) == timedelta(hours=7)  # also asked for 6
+    assert elapsed(slot) == timedelta(hours=6)
+    # Six real hours read as five on the clock face, because 01:00-02:00
+    # happens twice inside them. The block is right; the clock is the odd one.
+    assert slot[0].astimezone(LONDON).hour == 0
+    assert slot[1].astimezone(LONDON).hour == 5
+
+
+def test_a_block_that_spans_a_transition_is_not_seen_as_a_changed_estimate():
+    # `invalid_reason` measures a block in real time. While the scheduler
+    # measured it in wall-clock, a settled block over a transition disagreed
+    # with its own estimate and was moved on every run, for ever.
+    from task_gcal.stability import invalid_reason
+
+    slot = find(
+        minutes=5 * 60,
+        earliest=SPRING_EARLIEST,
+        deadline=SPRING_DEADLINE,
+        tz=LONDON,
+        **_OVERNIGHT,
+    )
+    assert (
+        invalid_reason(
+            start=slot[0],
+            end=slot[1],
+            duration_minutes=5 * 60,
+            earliest_start=SPRING_EARLIEST,
+            deadline=SPRING_DEADLINE,
+            busy=[],
+            tz=LONDON,
+            settings=Settings(timezone="Europe/London", **_OVERNIGHT),
+        )
+        is None
+    )
 
 
 def test_a_slot_fully_inside_one_offset_has_the_exact_duration():
@@ -319,25 +362,6 @@ def test_a_slot_fully_inside_one_offset_has_the_exact_duration():
         **_OVERNIGHT,
     )
     assert elapsed(slot) == timedelta(hours=6)
-
-
-@pytest.mark.xfail(
-    reason="wall-clock slot arithmetic: a spring-forward slot is an hour short",
-    strict=True,
-)
-def test_estimate_should_buy_that_many_real_minutes():
-    # A 6h estimate means 6h of work. Over spring-forward the window only
-    # holds 5, so the honest answers are "5h fits, 6h doesn't".
-    assert (
-        find(
-            minutes=6 * 60,
-            earliest=SPRING_EARLIEST,
-            deadline=SPRING_DEADLINE,
-            tz=LONDON,
-            **_OVERNIGHT,
-        )
-        is None
-    )
 
 
 def test_windows_follow_local_wall_clock_across_a_transition():

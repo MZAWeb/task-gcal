@@ -8,7 +8,7 @@ deadline.
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta, tzinfo
+from datetime import datetime, time, timedelta, timezone, tzinfo
 from typing import Optional
 
 from .config import Settings
@@ -24,6 +24,20 @@ def _ceil_to_alignment(dt: datetime, minutes: int) -> datetime:
         # Sub-minute remainder pushed us past the boundary.
         return base + timedelta(minutes=minutes)
     return base + timedelta(minutes=(minutes - rem))
+
+
+def _after(moment: datetime, duration: timedelta) -> datetime:
+    """`moment` advanced by `duration` of *real* time, kept in its own zone.
+
+    Adding a timedelta to a zone-aware datetime advances the wall clock, so
+    over a spring-forward 00:00 + 6h is 06:00 — which is five hours later, not
+    six. An estimate is a claim about real time (an hour of work is an hour of
+    work whatever the clocks do that night), so this arithmetic goes through
+    UTC while working *hours* stay wall-clock. That split is the whole of it:
+    windows are where the clock says you work, durations are how long
+    something takes.
+    """
+    return (moment.astimezone(timezone.utc) + duration).astimezone(moment.tzinfo)
 
 
 def _work_windows(
@@ -118,6 +132,8 @@ def find_earliest_slot(
     """Find the earliest aligned slot of `duration_minutes` that fits.
 
     - Slot must be fully inside a working-hours window.
+    - Slot must hold `duration_minutes` of *real* time, which is not the same
+      as wall-clock minutes on the two days a year the clocks change.
     - Slot must not overlap any interval in `busy` (must be sorted), and
       must keep `settings.buffer_minutes` of free time on either side of
       every busy interval.
@@ -133,7 +149,7 @@ def find_earliest_slot(
     for win in windows:
         for fs, fe in _subtract_busy(win, busy, buffer):
             slot_start = _ceil_to_alignment(fs, settings.slot_align_minutes)
-            slot_end = slot_start + duration
+            slot_end = _after(slot_start, duration)
             if slot_end <= fe and slot_end.astimezone(deadline.tzinfo) <= deadline:
                 return slot_start, slot_end
     return None

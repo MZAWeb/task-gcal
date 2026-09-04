@@ -14,7 +14,7 @@ beyond what it is handed.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Optional
 
 from .config import Settings
@@ -55,7 +55,12 @@ def invalid_reason(
     The reason is user-facing: the run report prints it next to the block
     it had to move, so "why did this shift?" never needs guessing.
     """
-    if end - start != timedelta(minutes=duration_minutes):
+    # In real time, not wall-clock: subtracting two datetimes that share a
+    # zone subtracts their *clock faces*, so a block spanning a transition
+    # would disagree with its own estimate and be moved on every run for ever.
+    if end.astimezone(timezone.utc) - start.astimezone(timezone.utc) != timedelta(
+        minutes=duration_minutes
+    ):
         return "estimate changed"
     if earliest_start is not None and start < earliest_start:
         return "starts before its scheduled/wait date"
