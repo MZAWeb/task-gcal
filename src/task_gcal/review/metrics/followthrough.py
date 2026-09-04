@@ -21,7 +21,7 @@ from collections import Counter
 
 from ..model import Coverage, Section, Suggestion
 
-KEY = "follow_through"
+KEY = "blocks"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
@@ -42,7 +42,7 @@ def build(facts) -> Section:
     if not facts.calendar_ok:
         return Section(
             key=KEY,
-            label="Follow-through",
+            label="Blocks",
             summary="calendar not read",
             measured=False,
         )
@@ -68,7 +68,7 @@ def build(facts) -> Section:
     if not ended:
         return Section(
             key=KEY,
-            label="Follow-through",
+            label="Blocks",
             summary=(
                 "no blocks ended in this period"
                 + (f" · {len(off_plan)} completed off-plan" if off_plan else "")
@@ -120,7 +120,7 @@ def build(facts) -> Section:
 
     return Section(
         key=KEY,
-        label="Follow-through",
+        label="Blocks",
         summary=summary,
         detail=tuple(detail),
         coverage=(

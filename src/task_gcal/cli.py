@@ -35,19 +35,21 @@ DEFAULT_CHECKIN_DAYS = 14
 
 # Review section names, for `--section`. Also duplicated to keep the review
 # package out of a bare run, and also checked by a test.
+# Plain words, because these are typed by a person and printed at the foot of
+# every report. The modules behind them keep their precise internal names.
 _SECTION_CHOICES = (
-    "capacity",
-    "throughput",
-    "flow",
+    "time",
+    "finished",
+    "backlog",
     "lead_time",
-    "follow_through",
-    "deadlines",
-    "churn",
-    "friction",
-    "attempts",
-    "scope",
-    "boundaries",
-    "stagnation",
+    "blocks",
+    "dates",
+    "rescheduling",
+    "reasons",
+    "sittings",
+    "growth",
+    "after_hours",
+    "stuck",
     "trends",
 )
 

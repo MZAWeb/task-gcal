@@ -20,7 +20,7 @@ from collections import Counter
 from ...intervals import humanize_minutes
 from ..model import Coverage, Section, Suggestion
 
-KEY = "attempts"
+KEY = "sittings"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
@@ -39,7 +39,7 @@ def build(facts) -> Section:
     if not facts.calendar_ok:
         return Section(
             key=KEY,
-            label="Attempts",
+            label="Sittings",
             summary="calendar not read",
             measured=False,
         )
@@ -61,7 +61,7 @@ def build(facts) -> Section:
     if not counts:
         return Section(
             key=KEY,
-            label="Attempts",
+            label="Sittings",
             summary="no completed task had a block that had ended",
             measured=False,
             coverage=(
@@ -122,7 +122,7 @@ def build(facts) -> Section:
 
     return Section(
         key=KEY,
-        label="Attempts",
+        label="Sittings",
         summary=summary,
         detail=tuple(detail),
         coverage=(

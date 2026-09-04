@@ -65,7 +65,7 @@ def test_the_default_is_the_headline_sections_not_all_of_them(populated, fmt):
     # otherwise the report is the dashboard we set out not to build.
     out = populated.render(fmt)
     assert "Lead time" not in out
-    assert "Capacity" in out
+    assert "Time" in out
 
 
 @pytest.mark.parametrize("fmt", FORMATS)
@@ -83,8 +83,8 @@ def test_no_format_invents_an_adjustment(review, fmt):
 
 @pytest.mark.parametrize("fmt", FORMATS)
 def test_a_section_filter_narrows_every_format(populated, fmt):
-    out = populated.render(fmt, sections=("capacity",))
-    assert "Capacity" in out
+    out = populated.render(fmt, sections=("time",))
+    assert "Time" in out
     assert "Lead time" not in out
 
 
@@ -116,22 +116,22 @@ def test_the_terminal_summary_is_one_line_per_section(populated):
 def test_an_unmeasurable_section_is_named_rather_than_given_a_line(populated):
     # It costs a line and says nothing; the budget is one screen.
     out = populated.render("terminal")
-    assert "Deadlines      no deadline history" not in out
+    assert "Dates          no deadline history" not in out
     assert "Not measured" in out
-    assert "Deadlines" in out
+    assert "Dates" in out
 
 
 def test_asking_for_an_unmeasurable_section_still_shows_it(populated):
     # "There's no data for this" is the answer to the question that was asked.
-    out = populated.render("terminal", sections=("deadlines",))
-    assert "Deadlines" in out
+    out = populated.render("terminal", sections=("dates",))
+    assert "Dates" in out
     assert "not measured" in out
 
 
 def test_terminal_detail_keeps_its_column_alignment(populated):
     # The metric builders pad their labels; re-wrapping would collapse the
     # padding and turn a readable column into a paragraph.
-    out = populated.render("terminal", sections=("capacity",))
+    out = populated.render("terminal", sections=("time",))
     assert "  Working hours     " in out
 
 
@@ -146,7 +146,7 @@ def test_the_terminal_report_ends_with_the_adjustment(populated):
 
 
 def test_terminal_prose_is_wrapped_but_columns_are_not(populated):
-    out = populated.render("terminal", sections=("capacity",))
+    out = populated.render("terminal", sections=("time",))
     assert all(len(line) <= 80 for line in out.splitlines())
 
 
@@ -168,7 +168,7 @@ def test_unmeasured_sections_are_named_rather_than_shown_as_zero(review):
     review.calendar_ok = False
     out = review.render("terminal")
     assert "Not measured" in out
-    assert "Capacity" in out
+    assert "Time" in out
 
 
 # ---------------------------------------------------------------------------
@@ -182,14 +182,14 @@ def test_markdown_leads_with_a_heading(populated):
 def test_markdown_summarizes_in_a_table(populated):
     out = populated.render("markdown")
     assert "| --- | --- |" in out
-    assert "| **Capacity** |" in out
+    assert "| **Time** |" in out
 
 
 def test_markdown_escapes_a_pipe_so_the_table_survives(review):
     review.tasks(
         a_task(uuid="a", status="completed", end=at(0, 9), project="a|b")
     )
-    out = review.render("markdown", sections=("throughput",))
+    out = review.render("markdown", sections=("finished",))
     assert "a\\|b" in out
 
 
@@ -226,14 +226,14 @@ def test_json_is_valid_json(populated):
 def test_json_carries_machine_readable_data_for_each_section(populated):
     payload = json.loads(populated.render("json"))
     by_key = {s["key"]: s for s in payload["sections"]}
-    assert by_key["capacity"]["data"]["available_minutes"] > 0
-    assert by_key["throughput"]["data"]["completed"] == 3
+    assert by_key["time"]["data"]["available_minutes"] > 0
+    assert by_key["finished"]["data"]["completed"] == 3
 
 
 def test_json_always_ships_coverage_even_unfiltered(populated):
     payload = json.loads(populated.render("json"))
     throughput = next(
-        s for s in payload["sections"] if s["key"] == "throughput"
+        s for s in payload["sections"] if s["key"] == "finished"
     )
     assert throughput["coverage"][0]["total"] == 3
 
@@ -241,7 +241,7 @@ def test_json_always_ships_coverage_even_unfiltered(populated):
 def test_json_marks_an_unmeasured_section(review):
     review.calendar_ok = False
     payload = json.loads(review.render("json"))
-    capacity = next(s for s in payload["sections"] if s["key"] == "capacity")
+    capacity = next(s for s in payload["sections"] if s["key"] == "time")
     assert capacity["measured"] is False
 
 
@@ -271,7 +271,7 @@ def test_json_timestamps_are_utc_with_a_z(populated):
 def test_json_omits_prose_detail_unless_asked(populated):
     plain = json.loads(populated.render("json"))
     assert "detail" not in plain["sections"][0]
-    filtered = json.loads(populated.render("json", sections=("capacity",)))
+    filtered = json.loads(populated.render("json", sections=("time",)))
     assert filtered["sections"][0]["detail"]
 
 
@@ -331,7 +331,7 @@ def test_the_table_never_shows_a_python_repr(populated):
         a_block("stuck", at(0, 9), 60), a_block("stuck", at(1, 9), 60)
     )
     populated.tasks(a_task(uuid="stuck", id=40, description="Analyze peakon"))
-    out = populated.render("html", sections=("stagnation",))
+    out = populated.render("html", sections=("stuck",))
 
     assert "{&#x27;" not in out and "{'" not in out
     assert "[{" not in out
@@ -341,12 +341,12 @@ def test_the_table_never_shows_a_python_repr(populated):
 
 
 def test_a_nested_dict_is_still_flattened(populated):
-    out = populated.render("html", sections=("throughput",))
+    out = populated.render("html", sections=("finished",))
     assert "by_project.fraud" in out
 
 
 def test_html_explains_every_section_it_shows(populated):
-    # "Scope" and "Stagnation" are labels a first-time reader cannot guess, and
+    # Even the plainer labels need saying once: "Backlog" and "Sittings" are
     # a metric nobody understands is a metric nobody acts on.
     from task_gcal.review.metrics import glossary
 
@@ -360,9 +360,9 @@ def test_html_explains_every_section_it_shows(populated):
 def test_the_glossary_does_not_define_sections_that_are_not_shown(populated):
     from task_gcal.review.metrics import glossary
 
-    out = populated.render("html", sections=("capacity",))
-    assert escape(glossary()["capacity"]) in out
-    assert escape(glossary()["stagnation"]) not in out
+    out = populated.render("html", sections=("time",))
+    assert escape(glossary()["time"]) in out
+    assert escape(glossary()["stuck"]) not in out
 
 
 def test_the_glossary_comes_after_the_report(populated):
@@ -401,7 +401,7 @@ def test_the_capacity_stack_appears_once_the_week_has_a_claim_on_it(review):
 
 
 def test_the_capacity_stack_never_exceeds_the_working_day(populated):
-    section = populated.review().section("capacity")
+    section = populated.review().section("time")
     stack = (
         section.data["meeting_minutes"]
         + section.data["planned_in_hours_minutes"]

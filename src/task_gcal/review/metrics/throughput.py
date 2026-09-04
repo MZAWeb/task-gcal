@@ -17,7 +17,7 @@ from collections import Counter
 from ...intervals import humanize_minutes
 from ..model import Coverage, Section, Suggestion
 
-KEY = "throughput"
+KEY = "finished"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
@@ -103,7 +103,7 @@ def build(facts) -> Section:
 
     return Section(
         key=KEY,
-        label="Completed",
+        label="Finished",
         summary=summary,
         detail=tuple(detail),
         coverage=(

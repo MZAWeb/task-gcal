@@ -34,7 +34,7 @@ from ...intervals import humanize_minutes, merge, subtract, total_minutes
 from ..model import Coverage, Section, Suggestion
 from ..periods import work_windows
 
-KEY = "boundaries"
+KEY = "after_hours"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
@@ -133,7 +133,7 @@ def build(facts) -> Section:
     if not facts.calendar_ok:
         return Section(
             key=KEY,
-            label="Boundaries",
+            label="After hours",
             summary="calendar not read",
             measured=False,
         )
@@ -189,7 +189,7 @@ def build(facts) -> Section:
     if not outside_minutes and not overrides:
         return Section(
             key=KEY,
-            label="Boundaries",
+            label="After hours",
             summary="nothing placed outside working hours",
             data=measurements,
         )
@@ -245,7 +245,7 @@ def build(facts) -> Section:
 
     return Section(
         key=KEY,
-        label="Boundaries",
+        label="After hours",
         summary=summary,
         detail=tuple(detail),
         coverage=(

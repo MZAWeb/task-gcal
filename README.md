@@ -91,7 +91,7 @@ task-gcal review --week
 task-gcal review --month
 task-gcal review --week --last 1          # the week before this one
 task-gcal review --week --all             # every section, in full
-task-gcal review --week --section capacity
+task-gcal review --week --section time
 task-gcal review --triage                 # what needs a decision
 task-gcal review --month --format markdown -o notes/2026-09.md
 task-gcal review --week --format json
@@ -144,19 +144,23 @@ dashboard:
 
 | Section | Answers |
 | --- | --- |
-| `capacity` | Where the week went before you started |
-| `throughput` | How much moved, by project |
-| `flow` | Created vs closed — is intake the constraint? |
+| `time` | What the week had room for, once meetings are out |
+| `finished` | What you finished, and by project |
+| `backlog` | Is work arriving faster than you finish it? |
 | `lead_time` | How long something waits before you do it |
-| `follow_through` | Did the plan survive contact? Which hour fails most? |
-| `deadlines` | The promise ledger: pushes, days moved, original vs renegotiated |
-| `churn` | How often blocks moved, split by what moved them |
-| `friction` | The mix of confirmed reasons (needs `checkin`) |
-| `attempts` | Blocks-to-completion — are the estimates fiction? |
-| `scope` | Estimates revised up, titles rewritten, deliberate deferral |
-| `boundaries` | Evenings and weekends actually claimed |
-| `stagnation` | What needs a decision |
+| `blocks` | Time you set aside: did the task get done in it? |
+| `dates` | Due dates you moved, and whether the work landed |
+| `rescheduling` | How often blocks moved, and who moved them |
+| `reasons` | What you said got in the way (needs `checkin`) |
+| `sittings` | How many sittings a task really took |
+| `growth` | Tasks that quietly turned into bigger tasks |
+| `after_hours` | Evenings and weekends actually claimed |
+| `stuck` | What needs a decision |
 | `trends` | The same three numbers over 12 weeks (in a monthly summary) |
+
+The names are the plain ones, on purpose. Internally they keep precise
+names (`capacity`, `follow_through`, `stagnation`) — but "stagnation" is a
+word about a person, and "stuck" is a word about a task.
 
 ### `task-gcal review --triage`
 

@@ -9,6 +9,11 @@ Adding a metric means adding an entry here. There is deliberately no plugin
 framework: a list of functions is easier to read, and every metric has to
 justify itself to a person rather than to a registry.
 
+Section keys and labels are the plain words a person types and reads; the
+modules behind them keep the precise internal name. `capacity.py` builds the
+section called `time`, because "capacity" is the right word for the concept and
+the wrong word to put in front of somebody on a Friday afternoon.
+
 Each entry also carries what the section *means*, in words a person reading
 their first review would understand. It lives next to the builder so a new
 metric can't ship without one — "Scope" and "Stagnation" are meaningless

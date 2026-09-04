@@ -159,7 +159,7 @@ def test_open_with_an_output_path_opens_that_file(runner, monkeypatch, tmp_path)
 # ---------------------------------------------------------------------------
 
 def test_a_section_filter_shows_that_section_in_full(runner):
-    runner.run(ReviewRequest(sections=("capacity",)))
+    runner.run(ReviewRequest(sections=("time",)))
     assert "Working hours" in runner.out
     assert "Lead time" not in runner.out
 
@@ -167,7 +167,7 @@ def test_a_section_filter_shows_that_section_in_full(runner):
 def test_an_unmatched_section_is_an_error_that_lists_the_real_ones(runner):
     code = runner.run(ReviewRequest(sections=("vibes",)))
     assert code == 2
-    assert "capacity" in runner.err
+    assert "time" in runner.err
 
 
 def test_last_reports_the_previous_period(runner):
@@ -177,7 +177,7 @@ def test_last_reports_the_previous_period(runner):
     )
     runner.run(ReviewRequest(offset=1, fmt="json"))
     payload = json.loads(runner.out)
-    through = next(s for s in payload["sections"] if s["key"] == "throughput")
+    through = next(s for s in payload["sections"] if s["key"] == "finished")
 
     assert through["data"]["completed"] == 1
     assert payload["period"]["in_progress"] is False
@@ -202,7 +202,7 @@ def test_a_calendar_failure_degrades_rather_than_crashing(runner, monkeypatch):
     runner.calendar = Broken()
     code = runner.run(ReviewRequest(fmt="json"))
     payload = json.loads(runner.out)
-    capacity = next(s for s in payload["sections"] if s["key"] == "capacity")
+    capacity = next(s for s in payload["sections"] if s["key"] == "time")
 
     assert code == 0
     assert capacity["measured"] is False
@@ -378,7 +378,7 @@ def test_the_default_is_the_headline_sections_only(runner):
     runner.run(ReviewRequest(fmt="json"))
     keys = {s["key"] for s in json.loads(runner.out)["sections"]}
     assert "lead_time" not in keys
-    assert "capacity" in keys
+    assert "time" in keys
 
 
 def test_a_review_never_prompts(runner, monkeypatch):

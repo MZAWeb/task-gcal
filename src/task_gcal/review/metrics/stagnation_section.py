@@ -9,7 +9,7 @@ from __future__ import annotations
 from ..model import Coverage, Section, Suggestion
 from ..stagnation import find
 
-KEY = "stagnation"
+KEY = "stuck"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
@@ -43,7 +43,7 @@ def build(facts) -> Section:
     if not entries:
         return Section(
             key=KEY,
-            label="Stagnation",
+            label="Stuck",
             summary="nothing has accumulated enough evidence against it",
             coverage=(examined,),
             data={"stagnant": 0, "recurring_excluded": recurring},
@@ -73,7 +73,7 @@ def build(facts) -> Section:
 
     return Section(
         key=KEY,
-        label="Stagnation",
+        label="Stuck",
         summary=summary,
         detail=tuple(detail),
         coverage=(examined,),

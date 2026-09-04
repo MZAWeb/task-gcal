@@ -168,8 +168,8 @@ def test_month_and_week_are_mutually_exclusive():
 
 
 def test_sections_accumulate():
-    args = review_args("--section", "capacity", "--section", "flow")
-    assert args.sections == ["capacity", "flow"]
+    args = review_args("--section", "time", "--section", "backlog")
+    assert args.sections == ["time", "backlog"]
 
 
 def test_an_unknown_section_is_a_usage_error():

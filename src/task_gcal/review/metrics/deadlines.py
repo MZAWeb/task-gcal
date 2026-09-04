@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from ..model import Coverage, Section, Suggestion
 
-KEY = "deadlines"
+KEY = "dates"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
@@ -74,7 +74,7 @@ def build(facts) -> Section:
     if not has_history and not with_due:
         return Section(
             key=KEY,
-            label="Deadlines",
+            label="Dates",
             summary="no deadline history for this period",
             measured=False,
             data={},
@@ -145,7 +145,7 @@ def build(facts) -> Section:
 
     return Section(
         key=KEY,
-        label="Deadlines",
+        label="Dates",
         summary=summary,
         detail=tuple(detail),
         coverage=(

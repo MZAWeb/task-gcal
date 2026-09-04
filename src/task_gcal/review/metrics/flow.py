@@ -14,7 +14,7 @@ from typing import Optional, Sequence
 from ...intervals import humanize_duration
 from ..model import Coverage, Section, Suggestion
 
-KEY_FLOW = "flow"
+KEY_FLOW = "backlog"
 KEY_LEAD_TIME = "lead_time"
 
 # What these sections mean, in plain language, for a report's glossary.

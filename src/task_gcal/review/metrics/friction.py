@@ -34,7 +34,7 @@ from ...reflections import (
 )
 from ..model import Coverage, Section, Suggestion
 
-KEY = "friction"
+KEY = "reasons"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
@@ -64,7 +64,7 @@ def build(facts) -> Section:
     if not answers:
         return Section(
             key=KEY,
-            label="Friction",
+            label="Reasons",
             summary="no check-ins for this period",
             measured=False,
             detail=(
@@ -118,7 +118,7 @@ def build(facts) -> Section:
 
     return Section(
         key=KEY,
-        label="Friction",
+        label="Reasons",
         summary=summary,
         detail=tuple(detail),
         coverage=(

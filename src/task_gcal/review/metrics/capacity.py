@@ -17,7 +17,7 @@ from ...intervals import (
 )
 from ..model import Coverage, Section, Suggestion
 
-KEY = "capacity"
+KEY = "time"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
@@ -38,7 +38,7 @@ def build(facts) -> Section:
     if not facts.calendar_ok:
         return Section(
             key=KEY,
-            label="Capacity",
+            label="Time",
             summary=f"{humanize_minutes(available)} of working hours; "
                     "meetings not measured",
             measured=False,
@@ -120,7 +120,7 @@ def build(facts) -> Section:
 
     return Section(
         key=KEY,
-        label="Capacity",
+        label="Time",
         summary=summary,
         detail=tuple(detail),
         coverage=(

@@ -11,7 +11,7 @@ from __future__ import annotations
 from ...intervals import humanize_minutes
 from ..model import Coverage, Section, Suggestion
 
-KEY = "scope"
+KEY = "growth"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
@@ -31,7 +31,7 @@ def build(facts) -> Section:
     if facts.changes.earliest is None:
         return Section(
             key=KEY,
-            label="Scope",
+            label="Tasks that grew",
             summary="no change history for this period",
             measured=False,
             data={},
@@ -96,7 +96,7 @@ def build(facts) -> Section:
 
     return Section(
         key=KEY,
-        label="Scope",
+        label="Tasks that grew",
         summary=summary,
         detail=tuple(detail),
         coverage=(

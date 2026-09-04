@@ -21,7 +21,7 @@ from collections import Counter
 from ..model import Coverage, Section, Suggestion
 from ..placements import BY_HUMAN, build_blocks
 
-KEY = "churn"
+KEY = "rescheduling"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
@@ -42,7 +42,7 @@ def build(facts) -> Section:
     if not records:
         return Section(
             key=KEY,
-            label="Plan churn",
+            label="Rescheduling",
             summary="no scheduling runs recorded for this period",
             measured=False,
             detail=(
@@ -60,7 +60,7 @@ def build(facts) -> Section:
         # moved" here would turn missing data into a calm week.
         return Section(
             key=KEY,
-            label="Plan churn",
+            label="Rescheduling",
             summary="the runs in this period recorded no placements",
             measured=False,
             detail=(
@@ -110,7 +110,7 @@ def build(facts) -> Section:
 
     return Section(
         key=KEY,
-        label="Plan churn",
+        label="Rescheduling",
         summary=summary,
         detail=tuple(detail),
         coverage=(
