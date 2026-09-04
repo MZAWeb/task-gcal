@@ -8,7 +8,7 @@ thirteen metrics every time is a dashboard.
 
 from __future__ import annotations
 
-from ..metrics import section_keys
+from ..metrics import groups, section_keys
 from ..metrics import trends as trends_metric
 from ..model import Review, Section
 
@@ -27,7 +27,17 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
     shown = (
         sections if detailed else tuple(s for s in sections if s.measured)
     )
+    # Headings only in the detailed views. On the one-screen summary they'd
+    # cost a third of the budget to organise seven lines that already read in
+    # order.
+    where = groups() if detailed else {}
+    group = None
     for section in shown:
+        if detailed and where.get(section.key) != group:
+            group = where.get(section.key)
+            if group:
+                lines.append(f"── {group} ".ljust(78, "─"))
+                lines.append("")
         lines.extend(_summary_lines(section))
         if detailed:
             lines.extend(_detail_block(section))

@@ -7,7 +7,7 @@ exists to fix that, not to say more.
 
 from __future__ import annotations
 
-from ..metrics import glossary
+from ..metrics import glossary, groups
 from ..model import Review, Section
 
 
@@ -32,7 +32,14 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
         lines.append("")
 
     if detailed:
+        where = groups()
+        group = None
         for section in sections:
+            if where.get(section.key) != group:
+                group = where.get(section.key)
+                if group:
+                    lines.append(f"# {group}")
+                    lines.append("")
             lines.extend(_detail(section))
 
     if review.caveats:

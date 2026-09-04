@@ -44,28 +44,52 @@ from . import (
 SectionBuilder = Callable[[object], Section]
 
 
+# What each group of sections is *about*. Grouped by object rather than by
+# narrative, and that distinction is the point: there are four sections about
+# whether the plan held because there are four data sources, not because a
+# reader has four questions. He has two — did the time I set aside get used,
+# and do my dates mean anything — so the blocks live together and the dates
+# live together, and where they add up per task is somewhere else again.
+GROUP_WEEK = "The week you had"
+GROUP_BLOCKS = "Time you set aside"
+GROUP_DATES = "Dates you set"
+GROUP_SAID = "What you told me"
+GROUP_DECIDE = "What to decide"
+GROUP_OVER_TIME = "Over time"
+
+
 class Metric(NamedTuple):
     key: str
     build: SectionBuilder
     means: str
+    group: str
 
 
 # Ordered as the report reads: capacity, then output, then flow, then whether
 # the plan survived, then the behavioural detail, then what needs deciding.
 _METRICS: tuple[Metric, ...] = (
-    Metric(capacity.KEY, capacity.build, capacity.MEANS),
-    Metric(throughput.KEY, throughput.build, throughput.MEANS),
-    Metric(flow.KEY_FLOW, flow.build_flow, flow.MEANS_FLOW),
-    Metric(flow.KEY_LEAD_TIME, flow.build_lead_time, flow.MEANS_LEAD_TIME),
-    Metric(followthrough.KEY, followthrough.build, followthrough.MEANS),
-    Metric(deadlines.KEY, deadlines.build, deadlines.MEANS),
-    Metric(churn.KEY, churn.build, churn.MEANS),
-    Metric(friction.KEY, friction.build, friction.MEANS),
-    Metric(attempts.KEY, attempts.build, attempts.MEANS),
-    Metric(scope.KEY, scope.build, scope.MEANS),
-    Metric(boundaries.KEY, boundaries.build, boundaries.MEANS),
-    Metric(stagnation_section.KEY, stagnation_section.build, stagnation_section.MEANS),
-    Metric(trends.KEY, trends.build, trends.MEANS),
+    Metric(capacity.KEY, capacity.build, capacity.MEANS, GROUP_WEEK),
+    Metric(throughput.KEY, throughput.build, throughput.MEANS, GROUP_WEEK),
+    Metric(flow.KEY_FLOW, flow.build_flow, flow.MEANS_FLOW, GROUP_WEEK),
+    Metric(
+        flow.KEY_LEAD_TIME, flow.build_lead_time, flow.MEANS_LEAD_TIME, GROUP_WEEK
+    ),
+    Metric(boundaries.KEY, boundaries.build, boundaries.MEANS, GROUP_WEEK),
+    Metric(
+        followthrough.KEY, followthrough.build, followthrough.MEANS, GROUP_BLOCKS
+    ),
+    Metric(attempts.KEY, attempts.build, attempts.MEANS, GROUP_BLOCKS),
+    Metric(churn.KEY, churn.build, churn.MEANS, GROUP_BLOCKS),
+    Metric(deadlines.KEY, deadlines.build, deadlines.MEANS, GROUP_DATES),
+    Metric(scope.KEY, scope.build, scope.MEANS, GROUP_DATES),
+    Metric(friction.KEY, friction.build, friction.MEANS, GROUP_SAID),
+    Metric(
+        stagnation_section.KEY,
+        stagnation_section.build,
+        stagnation_section.MEANS,
+        GROUP_DECIDE,
+    ),
+    Metric(trends.KEY, trends.build, trends.MEANS, GROUP_OVER_TIME),
 )
 
 # The default weekly review has to fit one terminal screen, so only these
@@ -99,6 +123,11 @@ def section_keys() -> tuple[str, ...]:
 def glossary() -> dict[str, str]:
     """What each section means, keyed by section name."""
     return {metric.key: metric.means for metric in _METRICS}
+
+
+def groups() -> dict[str, str]:
+    """Which group each section belongs to, keyed by section name."""
+    return {metric.key: metric.group for metric in _METRICS}
 
 
 def summary_sections(

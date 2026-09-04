@@ -25,7 +25,7 @@ from html import escape
 
 from ...intervals import humanize_minutes
 from ..metrics import capacity as capacity_metric
-from ..metrics import glossary
+from ..metrics import glossary, groups
 from ..metrics import throughput as throughput_metric
 from ..metrics import trends as trends_metric
 from ..model import Review, Section
@@ -189,7 +189,13 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
 
     parts.extend(_charts(review, sections))
 
+    where = groups()
+    group = None
     for section in sections:
+        if where.get(section.key) != group:
+            group = where.get(section.key)
+            if group:
+                parts.append(f"<h2>{escape(group)}</h2>")
         parts.append(_section_details(section, open_by_default=detailed))
 
     parts.append(_table(sections))

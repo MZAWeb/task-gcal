@@ -150,6 +150,33 @@ def test_terminal_detail_keeps_its_column_alignment(populated):
     assert "  Working hours     " in out
 
 
+def test_the_detailed_view_groups_sections_by_what_they_are_about(populated):
+    # Blocks together, dates together — grouped by the object measured, not by
+    # a narrative. Four sections were about "did the plan hold" because there
+    # are four data sources, not because a reader has four questions.
+    from task_gcal.review.metrics import GROUP_BLOCKS, GROUP_DATES
+
+    lines = populated.render("terminal", sections=("blocks", "dates")).splitlines()
+    headings = [i for i, line in enumerate(lines) if line.startswith("──")]
+    labelled = {
+        line.split()[0]: i for i, line in enumerate(lines) if line[:1].strip()
+    }
+    assert [lines[i] for i in headings] == [
+        f"── {GROUP_BLOCKS} ".ljust(78, "─"),
+        f"── {GROUP_DATES} ".ljust(78, "─"),
+    ]
+    # Each section sits under its own group's heading, not above it.
+    assert headings[0] < labelled["Blocks"] < headings[1] < labelled["Dates"]
+
+
+def test_the_summary_has_no_group_headings(populated):
+    # They'd cost a third of a one-screen budget to organise seven lines that
+    # already read in order.
+    from task_gcal.review.metrics import GROUP_BLOCKS
+
+    assert GROUP_BLOCKS not in populated.render("terminal")
+
+
 def test_terminal_detail_is_only_shown_when_asked_for(populated):
     assert "Working hours" not in populated.render("terminal")
 
