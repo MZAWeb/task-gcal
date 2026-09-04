@@ -30,6 +30,9 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
         },
         "generated_at": _iso(review.generated_at),
         "adjustment": review.adjustment,
+        # [observed, total] days. A consumer plotting any of this needs to know
+        # how much of the period was seen as badly as a reader does.
+        "observed": list(review.observed) if review.observed else None,
         "caveats": list(review.caveats),
         "sections": [_section(s, detailed=detailed) for s in sections],
     }

@@ -67,6 +67,8 @@ def build(facts) -> Section:
             label="Reasons",
             summary="no check-ins for this period",
             measured=False,
+            # Nothing is wrong: `checkin` is opt-in and hasn't been used.
+            optional=True,
             detail=(
                 "`task-gcal checkin` records what happened and why. Without "
                 "it, follow-through and attempts are still measured — they "

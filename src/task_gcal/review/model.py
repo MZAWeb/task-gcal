@@ -78,6 +78,12 @@ class Section:
     # False when the inputs weren't there. A renderer must then say "not
     # measured" rather than print whatever zero the arithmetic produced.
     measured: bool = True
+    # True when what's missing is a feature the owner hasn't turned on, rather
+    # than data that should have been there. "Not measured" has to keep meaning
+    # something: printing it every week for an optional feature nobody enabled
+    # teaches the reader that the phrase is furniture, and then it can't do its
+    # job on the week the calendar genuinely failed.
+    optional: bool = False
 
 
 @dataclass(frozen=True)
@@ -90,6 +96,11 @@ class Review:
     # Things that make the numbers above less trustworthy: unobserved days, a
     # settings change mid-period, a calendar we couldn't read.
     caveats: tuple[str, ...] = ()
+    # (days a run observed, days in the period). In the model rather than only
+    # in the caveats because it belongs beside the title: a reader should know
+    # how much of the week this is built on before reading any of it, not
+    # after.
+    observed: Optional[tuple[int, int]] = None
 
     def section(self, key: str) -> Optional[Section]:
         for s in self.sections:
@@ -113,4 +124,6 @@ class Review:
 
     @property
     def incomplete_sections(self) -> tuple[str, ...]:
-        return tuple(s.label for s in self.sections if not s.measured)
+        return tuple(
+            s.label for s in self.sections if not s.measured and not s.optional
+        )

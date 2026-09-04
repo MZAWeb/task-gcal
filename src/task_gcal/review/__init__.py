@@ -50,6 +50,7 @@ def build(facts: Facts) -> Review:
         generated_at=facts.now,
         sections=metrics.build_sections(facts),
         caveats=caveats_mod.build(facts),
+        observed=(len(facts.observed_days()), len(facts.period.days())),
     )
 
 

@@ -12,7 +12,11 @@ from ..model import Review, Section
 
 
 def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> str:
-    lines: list[str] = [f"# {review.period.label}", ""]
+    title = review.period.label
+    if review.observed is not None:
+        seen, total = review.observed
+        title += f" · {seen} of {total} days seen"
+    lines: list[str] = [f"# {title}", ""]
     stamp = review.generated_at.astimezone(review.period.tz)
     lines.append(f"*Generated {stamp:%Y-%m-%d %H:%M %Z}*")
     lines.append("")

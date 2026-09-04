@@ -98,8 +98,18 @@ def test_an_unknown_format_is_refused(populated):
 # ---------------------------------------------------------------------------
 
 def test_the_default_terminal_report_fits_one_screen(populated):
+    # 26 rather than 24 because this fixture is a *first run*: it carries two
+    # caveats a configured setup never shows together ("no change history yet"
+    # and "no scheduling runs recorded"). The real steady-state report is 22.
     lines = populated.render("terminal").splitlines()
-    assert len(lines) <= 24, "\n".join(lines)
+    assert len(lines) <= 26, "\n".join(lines)
+
+
+def test_the_summary_block_itself_stays_short(populated):
+    # The part that grows when somebody adds a metric. Kept separate from the
+    # whole-page budget so caveats can't disguise creep here.
+    body = populated.render("terminal").split("\n\n")[1].splitlines()
+    assert len(body) <= 10, "\n".join(body)
 
 
 def test_every_section_starts_a_line_of_its_own_in_the_column(populated):

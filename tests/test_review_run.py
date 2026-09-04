@@ -291,7 +291,10 @@ def test_journal_records_in_the_period_are_read(runner, isolated_journal):
     payload = json.loads(runner.out)
 
     assert not any("no scheduling runs" in c for c in payload["caveats"])
-    assert any("day(s) observed" in c for c in payload["caveats"])
+    # The day count itself now lives beside the title, so the caveat says only
+    # what a count can't: what a day nobody observed means.
+    assert payload["observed"] == [1, 5]
+    assert any("missing, not zero" in c for c in payload["caveats"])
 
 
 def test_a_settings_change_inside_the_period_is_annotated(

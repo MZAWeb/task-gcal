@@ -21,12 +21,15 @@ def build(facts) -> tuple[str, ...]:
     observed = facts.observed_days()
     records = facts.records_in_period()
 
+    # The count itself is in the title now, so this says only the part a
+    # count can't: what a missing day means. Repeating "1 of 5" here made the
+    # reader check whether the two numbers agreed instead of reading either.
     # With no records at all, the "seed some history" note below says
     # everything this one would, and more usefully.
     if records and len(observed) < len(days):
         out.append(
-            f"{len(observed)} of {len(days)} day(s) observed. "
-            "Anything the journal didn't see is missing, not zero."
+            "Anything the journal didn't see is missing, not zero — "
+            "see the day count beside the title."
         )
 
     note = facts.change_coverage_note()

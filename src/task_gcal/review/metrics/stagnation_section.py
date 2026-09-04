@@ -49,7 +49,14 @@ def build(facts) -> Section:
             data={"stagnant": 0, "recurring_excluded": recurring},
         )
 
-    summary = f"{len(entries)} of {pending} open task(s) need a decision"
+    # Not "N tasks need a decision": ten things is not a decision, and a tool
+    # telling its owner what he "needs" is the one register that's out. The
+    # count is context for the closing line, which is where this section
+    # actually speaks — see the suggestion below.
+    summary = (
+        f"{len(entries)} of {pending} open tasks are carrying evidence "
+        "against them"
+    )
     detail = [f"  {entry.summary}" for entry in entries[:_TOP]]
     if len(entries) > _TOP:
         detail.append(f"  ... and {len(entries) - _TOP} more")
@@ -61,10 +68,17 @@ def build(facts) -> Section:
     detail.append("`task-gcal review --triage` prints commands for each.")
 
     worst = entries[0]
+    others = len(entries) - 1
+    also = (
+        f" ({others} other task{'' if others == 1 else 's'} show the same "
+        "pattern — `--section stuck` lists them.)"
+        if others
+        else ""
+    )
     suggestions = (
         Suggestion(
             f'"{worst.task.description}" — {", ".join(worst.reasons)}. '
-            "Do it, shrink it, hand it off, or kill it.",
+            "Do it, shrink it, hand it off, or kill it." + also,
             # Just under a repeat-offender deadline: the same evidence, but
             # phrased as a list rather than as the one decision to make.
             weight=3.8,

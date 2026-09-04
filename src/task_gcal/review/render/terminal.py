@@ -8,6 +8,7 @@ thirteen metrics every time is a dashboard.
 
 from __future__ import annotations
 
+from ..metrics import section_keys
 from ..metrics import trends as trends_metric
 from ..model import Review, Section
 
@@ -17,7 +18,7 @@ _LABEL_WIDTH = 15
 
 
 def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> str:
-    lines: list[str] = [review.period.label, ""]
+    lines: list[str] = [_title(review), ""]
 
     # A section with nothing to measure costs a line and says nothing, and the
     # one-screen budget is tight. They're named together below instead — but
@@ -32,7 +33,9 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
             lines.extend(_detail_block(section))
 
     if not detailed:
-        unmeasured = tuple(s.label for s in sections if not s.measured)
+        unmeasured = tuple(
+            s.label for s in sections if not s.measured and not s.optional
+        )
         if unmeasured:
             lines.append("")
             lines.append(f"Not measured   {', '.join(unmeasured)}")
@@ -43,11 +46,51 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
         for caveat in review.caveats:
             lines.extend(_wrap(caveat, indent="  "))
 
+    # The menu goes above the closing line, not below it. Ending on "Look at"
+    # is the point of the whole report; a list of flags after it would be the
+    # last thing you read.
+    if not detailed:
+        rest = _more(tuple(s.key for s in sections))
+        if rest:
+            lines.append("")
+            lines.extend(rest)
+
     if review.adjustment:
         lines.append("")
         lines.extend(_wrap(f"Look at: {review.adjustment}"))
 
     return "\n".join(lines) + "\n"
+
+
+def _title(review: Review) -> str:
+    """The period, and how much of it was actually seen.
+
+    Coverage belongs here as well as in the footer: "1 of 5 days" changes how
+    every number below it should be read, and a reader who meets it at the
+    bottom has already believed the top.
+    """
+    if review.observed is None:
+        return review.period.label
+    seen, total = review.observed
+    return f"{review.period.label} · {seen} of {total} days seen"
+
+
+def _more(shown: tuple[str, ...]) -> list[str]:
+    """Name the sections that aren't on the screen.
+
+    The complaint that produced this was exact: `--section` is no use if you
+    have to know the names already. Naming the ones you *have* just read would
+    be noise, so this is the rest — the list you'd otherwise have to remember
+    exists.
+    """
+    rest = [key for key in section_keys() if key not in shown]
+    if not rest:
+        return []
+    return _wrap(
+        " · ".join(rest),
+        indent="Also: task-gcal review --section ",
+        subsequent="  ",
+    )
 
 
 def _summary_lines(section: Section) -> list[str]:

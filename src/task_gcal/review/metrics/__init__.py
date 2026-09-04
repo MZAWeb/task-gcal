@@ -71,6 +71,11 @@ _METRICS: tuple[Metric, ...] = (
 # The default weekly review has to fit one terminal screen, so only these
 # print without being asked for. The rest are `--section` material: detailed
 # metrics are requested, not always shown.
+#
+# `stuck` is deliberately absent, and it's the one that had to go. It isn't a
+# measurement — it's the consequence of the others, per task — and as a row it
+# read as a seventh verdict on the same evidence. It speaks through the closing
+# line instead, which is the one place the report asks for anything.
 SUMMARY_KEYS: tuple[str, ...] = (
     capacity.KEY,
     throughput.KEY,
@@ -79,7 +84,6 @@ SUMMARY_KEYS: tuple[str, ...] = (
     deadlines.KEY,
     friction.KEY,
     boundaries.KEY,
-    stagnation_section.KEY,
 )
 
 

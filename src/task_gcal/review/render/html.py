@@ -164,6 +164,11 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
         f"<style>{_STYLE}</style></head><body><main>",
         f"<h1>{escape(review.period.label)}</h1>",
         f'<p class="stamp">Generated {escape(stamp.strftime("%Y-%m-%d %H:%M %Z"))}'
+        + (
+            f" · {review.observed[0]} of {review.observed[1]} days seen"
+            if review.observed is not None
+            else ""
+        )
         + (" · period still in progress" if review.period.in_progress else "")
         + "</p>",
     ]
