@@ -787,3 +787,72 @@ def test_a_task_with_no_estimate_is_its_own_size_bucket(review, isolated_journal
 
     text = "\n".join(data(review, friction.KEY).detail)
     assert "no estimate" in text
+
+
+def test_the_closing_line_says_which_section_raised_it(review):
+    # `adjustment` is the finding as a sentence. `closing` is the same finding
+    # with the two facts a sentence has to throw away: where it came from, and
+    # how many periods it has already been true for. A renderer that wants to
+    # link a finding to its own evidence needs the first; one that wants to set
+    # the repetition clause apart from the finding needs the second, and used to
+    # get it by searching the sentence for a substring.
+    review.tasks(a_task(uuid="a", description="Prepare PIR", due=at(30, 17)))
+    review.changes(
+        *[
+            due_moved("a", at=review.period().start, frm=at(n, 17), to=at(n + 10, 17))
+            for n in (0, 10, 20)
+        ]
+    )
+    built = review.review()
+
+    origin, suggestion = built.closing
+    assert origin == "dates"
+    assert "Prepare PIR" in suggestion.text
+    # And the sentence is still exactly the sentence, for whoever wants one.
+    assert built.adjustment.startswith(suggestion.text)
+
+
+def test_a_review_with_nothing_to_say_has_no_closing_finding(review):
+    assert review.review().closing is None
+    assert review.review().adjustment is None
+    assert review.review().repetition_note() == ""
+
+
+def test_the_repetition_clause_is_available_on_its_own(review):
+    # One wording, in one place, so no renderer has to reconstruct it.
+    period = review.period()
+    already = period.shifted(-1).end - timedelta(hours=1)
+    review.tasks(a_task(uuid="a", description="Prepare PIR", due=at(30, 17)))
+    review.changes(
+        *[
+            due_moved("a", at=already, frm=at(n, 17), to=at(n + 10, 17))
+            for n in (0, 10, 20)
+        ],
+        due_moved("a", at=period.start, frm=at(20, 17), to=at(30, 17)),
+    )
+    built = review.review()
+
+    note = built.repetition_note()
+    assert note == "This is the 2nd week running that I've closed with this."
+    # The sentence is the finding plus the clause, and nothing else.
+    _origin, suggestion = built.closing
+    assert built.adjustment == f"{suggestion.text} {note}"
+
+
+def test_a_denominator_can_name_the_figure_it_qualifies(review):
+    # "6 of 7 completed tasks had an observed block" is a statement about one
+    # figure, not about the whole section. Carrying that link means a renderer
+    # can print the two together instead of putting the denominator in a
+    # footnote several inches from the number it warrants.
+    review.tasks(
+        a_task(uuid="a", status="completed", end=at(0, 10)),
+        a_task(uuid="b", status="completed", end=at(1, 10)),
+    )
+    review.blocks(a_block("a", at(0, 9), 60))
+    section = review.review().section("sittings")
+
+    qualified = [c for c in section.coverage if c.qualifies]
+    assert qualified, "sittings should attach its denominator to a figure"
+    # And the row it names is a row the section actually prints.
+    for cover in qualified:
+        assert any(line.startswith(cover.qualifies) for line in section.detail)

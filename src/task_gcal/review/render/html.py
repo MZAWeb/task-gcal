@@ -480,6 +480,16 @@ ol.entries > li:first-child { border-top: 0; padding-top: 0; }
   gap: 0.15rem 1.1rem;
 }
 .coverage b { color: var(--ink-2); font-variant-numeric: tabular-nums; font-weight: 600; }
+/* A denominator that belongs to one figure, set beside it. Quieter than the
+   value it qualifies, because it is the value's warranty and not a second
+   number to read. */
+.qual {
+  display: inline-block;
+  margin-left: 0.6rem;
+  font-size: 0.78rem;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
 
 /* --------------------------------------------------------------- details */
 details.more { margin: 1.1rem 0 0; }
@@ -821,33 +831,53 @@ def _decision(review: Review, sections: tuple[Section, ...]) -> str:
 
     First rather than last, unlike the terminal: a page you scroll can't rely
     on the reader reaching the end, and this is the only part of the report
-    that asks for anything. The "nth week running" clause is pulled out of the
-    sentence and set quietly — it's context for the ask, not part of it.
+    that asks for anything.
+
+    The finding, where it came from, and whether it has said this before are
+    three separate facts, and the model hands over three facts — so the quiet
+    meta line under the finding is composed here rather than recovered from a
+    finished sentence by searching it for a substring.
     """
-    if not review.adjustment:
+    found = review.closing
+    if found is None:
         return ""
-    text, again = _split_repetition(review.adjustment)
-    stuck = review.section(stuck_metric.KEY)
+    origin, suggestion = found
     shown = {s.key for s in sections}
-    body = _link_sections(_prose(text), shown)
+    labels = {s.key: s.label for s in sections}
+
+    meta: list[str] = []
+    note = review.repetition_note()
+    if note:
+        meta.append(escape(note))
+    # Where the finding came from. On a page where its evidence is several
+    # hundred pixels below it, the section that raised it is the one link worth
+    # offering — and until the model carried the origin, the only findings that
+    # could be linked were the ones that happened to name a CLI flag.
+    if origin in shown:
+        meta.append(
+            f'Raised by <a href="#{escape(origin)}">{escape(labels[origin])}</a>.'
+        )
+    stuck = review.section(stuck_metric.KEY)
     # Only when the finding doesn't already account for the others: the stuck
     # section's own suggestion names them, and two sentences saying "9 other
     # tasks look like this" is worse than neither.
     if (
         stuck is not None
         and stuck.key in shown
+        and stuck.key != origin
         and (stuck.data.get("stagnant") or 0) > 1
-        and "other task" not in review.adjustment
+        and "other task" not in suggestion.text
     ):
-        others = int(stuck.data["stagnant"]) - 1
-        again = (again + " " if again else "") + (
-            f'{others} other task{"s" if others != 1 else ""} '
+        others = int(stuck.data["stagnant"])
+        meta.append(
+            f'{others} task{"s" if others != 1 else ""} '
             f'<a href="#{escape(stuck.key)}">show the same pattern</a>.'
         )
+
     return (
         '<section class="decision"><p class="eyebrow">One thing to decide</p>'
-        f"<p>{body}</p>"
-        + (f'<p class="again">{again}</p>' if again else "")
+        f'<p>{_link_sections(_prose(suggestion.text), shown)}</p>'
+        + (f'<p class="again">{" ".join(meta)}</p>' if meta else "")
         + "</section>"
     )
 
@@ -870,14 +900,6 @@ def _link_sections(html: str, shown: set[str]) -> str:
         ),
         html,
     )
-
-
-def _split_repetition(adjustment: str) -> tuple[str, str]:
-    marker = " This is the "
-    if marker in adjustment and adjustment.rstrip().endswith("with this."):
-        head, tail = adjustment.split(marker, 1)
-        return head.strip(), escape("This is the " + tail.strip())
-    return adjustment, ""
 
 
 # ---------------------------------------------------------------------------
@@ -911,7 +933,18 @@ def _card(section: Section, *, detailed: bool, has_basis: bool = False) -> str:
     out.append(chart)
     out.append(_entries(section))
 
-    facts = _facts(section, charted=bool(chart))
+    # Denominators that belong to one figure travel with it; the rest go to the
+    # footnote. Which is which is the metric's call, not a guess made here — and
+    # `consumed` is what actually got placed, rather than what claimed a place,
+    # so a denominator naming a row that no longer exists loses its position and
+    # never its content.
+    attached = {
+        cover.qualifies: cover for cover in section.coverage if cover.qualifies
+    }
+    consumed: set[str] = set()
+    facts = _facts(
+        section, charted=bool(chart), attached=attached, consumed=consumed
+    )
     if facts:
         if detailed:
             out.append(facts)
@@ -921,7 +954,7 @@ def _card(section: Section, *, detailed: bool, has_basis: bool = False) -> str:
                 f"{facts}</details>"
             )
     out.append(_ledger(section))
-    out.append(_coverage(section))
+    out.append(_coverage(section, placed=consumed))
     out.append("</article>")
     return "".join(part for part in out if part)
 
@@ -949,22 +982,54 @@ def _why_blank(section: Section, *, has_basis: bool) -> str:
     return unknown + ' — see <a href="#basis">what this is based on</a>.'
 
 
-def _coverage(section: Section) -> str:
-    if not section.coverage:
+def _coverage(section: Section, *, placed: Optional[set] = None) -> str:
+    """The section's denominators, minus any that went inline with a figure.
+
+    `placed` is what the fact list actually printed beside a value, not what
+    asked to be: a coverage entry whose row has been renamed still belongs on
+    the page, in the footnote it came from.
+    """
+    used = placed or set()
+    remaining = [
+        cover
+        for cover in section.coverage
+        if not (cover.qualifies and cover.qualifies in used)
+    ]
+    if not remaining:
         return ""
     items = "".join(
         f"<span><b>{cover.observed} of {cover.total}</b> "
         f"{escape(_depluralize(cover.label))}</span>"
-        for cover in section.coverage
+        for cover in remaining
     )
     return f'<p class="coverage">{items}</p>'
+
+
+def _qualifier(cover) -> str:
+    """A denominator set beside the figure it qualifies, rather than beneath it.
+
+    "6 of 7 completed tasks had an observed block" is a statement about the
+    average directly above it and about nothing else on the card. Printing it in
+    a footnote, with a chart in between, is how a report whose founding rule is
+    that every number carries what it's out of ends up not looking like one.
+    """
+    return (
+        f'<span class="qual">{cover.observed} of {cover.total} '
+        f"{escape(_depluralize(cover.label))}</span>"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Detail lines, parsed back into structure
 # ---------------------------------------------------------------------------
 
-def _facts(section: Section, *, charted: bool = False) -> str:
+def _facts(
+    section: Section,
+    *,
+    charted: bool = False,
+    attached: Optional[dict] = None,
+    consumed: Optional[set] = None,
+) -> str:
     """Typeset the metric's detail lines.
 
     The metrics format detail as padded columns because the terminal reads them
@@ -1033,9 +1098,14 @@ def _facts(section: Section, *, charted: bool = False) -> str:
         if len(split) == 2 and not _looks_like_a_list_row(split[0]):
             flush_items()
             klass = "fact sub" if indented else "fact"
+            cover = (attached or {}).get(split[0])
+            if cover is not None and consumed is not None:
+                consumed.add(split[0])
             pairs.append(
                 f'<div class="{klass}"><dt>{escape(split[0])}</dt>'
-                f"<dd>{_prose(split[1])}</dd></div>"
+                f"<dd>{_prose(split[1])}"
+                + (_qualifier(cover) if cover else "")
+                + "</dd></div>"
             )
             continue
         if indented:

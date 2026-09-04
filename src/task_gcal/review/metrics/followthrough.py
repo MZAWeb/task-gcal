@@ -137,6 +137,7 @@ def build(facts) -> Section:
         coverage=(
             Coverage(
                 label="ended blocks belonged to a task we could still find",
+                qualifies="Blocks ended",
                 observed=sum(
                     1 for b in ended if (b.task_uuid or "") in tasks
                 ),

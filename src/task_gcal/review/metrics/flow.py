@@ -149,6 +149,7 @@ def build_lead_time(facts) -> Section:
         coverage=(
             Coverage(
                 label="completed tasks had usable dates",
+                qualifies="Median",
                 observed=len(spans),
                 total=len(completed),
             ),

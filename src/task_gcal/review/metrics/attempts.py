@@ -128,6 +128,7 @@ def build(facts) -> Section:
         coverage=(
             Coverage(
                 label="completed tasks had an observed block",
+                qualifies="Average per task",
                 observed=len(counts),
                 total=len(completed),
             ),

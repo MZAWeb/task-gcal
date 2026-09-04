@@ -45,6 +45,14 @@ class Coverage:
     label: str
     observed: int
     total: int
+    # The label of the detail row this denominator belongs to, when it belongs
+    # to one figure rather than to the whole section. "38 of 50 had estimates"
+    # qualifies the estimate total and nothing else, and a renderer that knows
+    # that can print the two together instead of putting the denominator in a
+    # footnote several inches away. Naming the row rather than the `data` key
+    # because the row is what a reader sees; a renderer that can't find the row
+    # falls back to the footnote, so drift costs placement and never content.
+    qualifies: str = ""
 
     @property
     def complete(self) -> bool:
@@ -135,26 +143,60 @@ class Review:
         return None
 
     @property
-    def adjustment(self) -> Optional[str]:
-        """The one thing to look at, or None if nothing stands out.
+    def closing(self) -> Optional[tuple[str, Suggestion]]:
+        """The heaviest suggestion, and the key of the section that raised it.
 
-        If a review can't end with a single concrete thing to inspect, it's a
-        dashboard — and a dashboard was the thing we set out not to build.
+        The selection rule lives here and nowhere else. `adjustment` is this
+        same finding flattened into a sentence, for the renderers that want a
+        sentence; this is for the ones that want to link the finding to its own
+        evidence, or to set the repetition clause in a different voice from the
+        finding itself. Neither should have to recover from the other's prose.
         """
+        best_key: Optional[str] = None
         best: Optional[Suggestion] = None
         for section in self.sections:
             for suggestion in section.suggestions:
                 if best is None or suggestion.weight > best.weight:
-                    best = suggestion
-        if best is None:
+                    best_key, best = section.key, suggestion
+        if best is None or best_key is None:
             return None
+        return best_key, best
+
+    def repetition_note(self) -> str:
+        """"This is the 4th week running that I've closed with this", or "".
+
+        One wording, in one place. The closing line is the only part of the
+        report with any authority and the heaviest finding wins every week, so
+        left alone it becomes furniture; saying that it is repeating itself is
+        the honest alternative to quietly picking something less true. A
+        renderer that wants to set this clause apart from the finding asks for
+        it, rather than splitting a sentence back up on a substring.
+        """
+        found = self.closing
+        if found is None:
+            return ""
+        _key, best = found
         if not best.already_true_for:
-            return best.text
+            return ""
         running = best.already_true_for + 1
         return (
-            f"{best.text} This is the {_ordinal(running)} {self.period.kind} "
-            "running that I've closed with this."
+            f"This is the {_ordinal(running)} {self.period.kind} running "
+            "that I've closed with this."
         )
+
+    @property
+    def adjustment(self) -> Optional[str]:
+        """The one thing to look at, as a sentence, or None if nothing stands out.
+
+        If a review can't end with a single concrete thing to inspect, it's a
+        dashboard — and a dashboard was the thing we set out not to build.
+        """
+        found = self.closing
+        if found is None:
+            return None
+        _key, best = found
+        note = self.repetition_note()
+        return f"{best.text} {note}" if note else best.text
 
     @property
     def incomplete_sections(self) -> tuple[str, ...]:

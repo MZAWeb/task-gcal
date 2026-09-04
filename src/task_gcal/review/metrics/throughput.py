@@ -113,6 +113,7 @@ def build(facts) -> Section:
         coverage=(
             Coverage(
                 label="completed tasks had estimates",
+                qualifies="Planned minutes",
                 observed=len(with_estimate),
                 total=len(completed),
             ),

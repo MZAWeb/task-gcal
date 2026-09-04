@@ -1050,3 +1050,89 @@ def test_the_ledger_names_the_window_its_counts_cover(populated):
     if "Every date that moved" in out:
         assert "Moves, all time" in out
         assert "Days, all time" in out
+
+
+# ---------------------------------------------------------------------------
+# HTML: the closing finding, and denominators beside their figures
+# ---------------------------------------------------------------------------
+
+def test_the_decision_says_which_section_raised_it(populated):
+    populated.meetings(*[(at(day, 9), at(day, 15)) for day in range(5)])
+    out = populated.render("html", detailed=True)
+    decision = out[out.index("One thing to decide") :]
+    decision = decision[: decision.index("</section>")]
+    origin, _suggestion = populated.review().closing
+    assert f'Raised by <a href="#{origin}">' in decision
+
+
+def test_the_repetition_clause_is_set_apart_from_the_finding(populated):
+    # It's context for the ask, not part of it. Composed from the model's own
+    # clause rather than recovered by splitting the sentence on a substring.
+    from datetime import timedelta
+
+    from conftest import due_moved
+
+    period = populated.period()
+    already = period.shifted(-1).end - timedelta(hours=1)
+    populated.tasks(a_task(uuid="z", description="Prepare PIR", due=at(30, 17)))
+    populated.changes(
+        *[
+            due_moved("z", at=already, frm=at(n, 17), to=at(n + 10, 17))
+            for n in (0, 10, 20)
+        ],
+        due_moved("z", at=period.start, frm=at(20, 17), to=at(30, 17)),
+    )
+    out = populated.render("html", detailed=True)
+    decision = out[out.index("One thing to decide") :]
+    decision = decision[: decision.index("</section>")]
+
+    finding = re.search(r"<p>(.*?)</p>", decision).group(1)
+    again = re.search(r'<p class="again">(.*?)</p>', decision).group(1)
+    assert "week running" not in finding
+    assert "week running" in again
+
+
+def test_a_denominator_that_belongs_to_one_figure_sits_beside_it(populated):
+    populated.blocks(
+        a_block("a", at(0, 9), 60),
+        a_block("b", at(1, 9), 90),
+        a_block("b", at(1, 11), 90),
+    )
+    out = populated.render("html", sections=("sittings",), detailed=True)
+    row = re.search(
+        r"<dt>Average per task</dt><dd>([^<]*)<span class=\"qual\">([^<]*)</span>",
+        out,
+    )
+    assert row, out[out.index("Average per task") - 200 :][:400]
+    assert "observed block" in row.group(2)
+    # And it isn't also printed in the footnote underneath.
+    footnote = re.search(r'<p class="coverage">(.*?)</p>', out)
+    assert footnote is None or "observed block" not in footnote.group(1)
+
+
+def test_a_denominator_for_the_whole_section_stays_in_the_footnote(populated):
+    # "days of the period observed" qualifies every number in Time, not one of
+    # them, and belongs where it is.
+    out = populated.render("html", sections=("time",), detailed=True)
+    footnote = re.search(r'<p class="coverage">(.*?)</p>', out).group(1)
+    assert "days of the period observed" in footnote
+
+
+def test_a_denominator_naming_a_row_that_is_not_there_falls_back(populated):
+    # If a metric renames a detail row and forgets its coverage, drift costs
+    # placement and never content.
+    from dataclasses import replace
+
+    from task_gcal.review.render import render as render_fmt
+
+    built = populated.review()
+    section = built.section("sittings")
+    broken = replace(
+        section,
+        coverage=tuple(replace(c, qualifies="No Such Row") for c in section.coverage),
+    )
+    out = render_fmt(built, fmt="html", sections=(broken,), detailed=True)
+    assert 'class="qual"' not in out
+    footnote = re.search(r'<p class="coverage">(.*?)</p>', out)
+    assert footnote is not None, "an unattachable denominator must still print"
+    assert "observed block" in footnote.group(1)
