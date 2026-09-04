@@ -24,10 +24,10 @@ from collections import Counter
 
 from ...intervals import humanize_minutes
 from ...reflections import (
-    OUTCOME_DONE,
     OUTCOME_LABELS,
     OUTCOME_NOT_STARTED,
     OUTCOME_PARTIAL,
+    OUTCOME_PROGRESSED,
     OUTCOME_UNKNOWN,
     REASON_UNKNOWN,
     load,
@@ -37,7 +37,10 @@ from ..model import Coverage, Section, Suggestion
 KEY = "friction"
 
 # Outcomes that represent a commitment actually missed, and so have a "why"
-# worth counting. `done` and `cancelled` had no miss to explain.
+# worth counting. `progressed` is left out on purpose: work that was always
+# going to take more than one sitting isn't friction, and counting it would
+# make good planning look like a problem. `done` and `cancelled` no longer
+# get offered but may exist in older records; neither had a miss to explain.
 _MISSES = (OUTCOME_PARTIAL, OUTCOME_NOT_STARTED, OUTCOME_UNKNOWN)
 
 # Below this many confirmed reasons, a breakdown is noise dressed as insight.
@@ -91,6 +94,12 @@ def build(facts) -> Section:
             f"  {unclassified:>3}  unknown — reported as missing, not "
             "assigned a cause"
         )
+    continuations = sum(1 for r in answers if r.outcome == OUTCOME_PROGRESSED)
+    if continuations:
+        detail.append(
+            f"Planned continuations  {continuations} — work that always "
+            "needed another sitting, not friction"
+        )
 
     detail.extend(_shift(reasons, previous, facts))
     detail.extend(_actual_time(answers, facts))
@@ -123,6 +132,7 @@ def build(facts) -> Section:
             "outcomes": dict(outcomes.most_common()),
             "reasons": dict(reasons.most_common()),
             "unclassified": unclassified,
+            "continuations": continuations,
             "with_actuals": sum(1 for r in answers if r.actual_minutes),
             "previous_reasons": dict(
                 Counter(
@@ -162,35 +172,33 @@ def _shift(reasons: Counter, previous: list, facts) -> list[str]:
 
 
 def _actual_time(answers, facts) -> list[str]:
-    """Estimate-vs-actual, over finished checked-in work only.
+    """Time used against time set aside, over checked-in blocks.
 
-    Restricted to `done`, and that restriction is the whole point. The 20
-    minutes you spent on something you didn't finish says nothing about
-    whether the estimate was right — averaging partials in would make every
-    estimate look generous.
+    Compared with the *block* rather than the task's estimate, and that
+    choice is the whole point. None of the answers the check-in offers means
+    "the task is finished", so an actual can't say whether an estimate was
+    right — but it can say whether the time you booked got used, which is a
+    different and answerable question. Blocks-to-completion remains the
+    signal about estimates.
     """
-    tasks = facts.by_uuid()
     pairs = [
-        (tasks[r.task_uuid].estimate_minutes, r.actual_minutes)
+        (r.planned_minutes, r.actual_minutes)
         for r in answers
-        if r.outcome == OUTCOME_DONE
-        and r.actual_minutes
-        and r.task_uuid in tasks
-        and tasks[r.task_uuid].estimate_minutes
+        if r.actual_minutes and r.planned_minutes
     ]
     if not pairs:
         return [
-            "Actual time        no finished work with an actual — "
-            "blocks-to-completion is the fallback",
+            "Time used          no actuals recorded — blocks-to-completion "
+            "is the fallback",
         ]
-    planned = sum(estimate for estimate, _actual in pairs)
-    actual = sum(a for _estimate, a in pairs)
-    ratio = actual / planned if planned else 0
+    planned = sum(p for p, _actual in pairs)
+    actual = sum(a for _planned, a in pairs)
+    share = actual / planned if planned else 0
     return [
-        f"Actual time        {humanize_minutes(actual)} against "
-        f"{humanize_minutes(planned)} planned",
-        f"  over             {len(pairs)} finished checked-in task(s)",
-        f"  ratio            {ratio:.2f}x — these tasks only",
+        f"Time used          {humanize_minutes(actual)} of the "
+        f"{humanize_minutes(planned)} set aside",
+        f"  over             {len(pairs)} checked-in block(s)",
+        f"  share            {share:.0%} — says nothing about the estimates",
     ]
 
 

@@ -439,31 +439,83 @@ def ask(monkeypatch, isolated_journal):
     return asker
 
 
-def test_a_full_answer_is_recorded(ask):
+def test_one_question_records_both_dimensions(ask):
+    # The prompt asks once; the record still has what happened and why,
+    # because the metrics need them apart.
     ask.setup(tasks=[a_task(uuid="a", estimate=60)], blocks=[a_block("a", at(0, 9), 60)])
-    summary = ask.run("p", "a", "20", "ran out of week")
+    summary = ask.run("1", "20", "ran out of week")
 
     assert summary.recorded == 1
     (stored,) = ask.stored()
-    assert (stored.outcome, stored.reason) == ("partial", "avoided")
+    assert (stored.outcome, stored.reason) == ("partial", "estimate")
     assert stored.actual_minutes == 20
+    assert stored.planned_minutes == 60
     assert stored.note == "ran out of week"
 
 
-def test_the_prompt_shows_the_evidence_and_labels_the_suggestion(ask):
-    ask.setup(tasks=[a_task(uuid="a", estimate=60)], blocks=[a_block("a", at(0, 9), 60)])
+def test_only_one_question_is_asked(ask):
+    ask.setup(tasks=[a_task(uuid="a")], blocks=[a_block("a", at(0, 9), 60)])
+    ask.run("2", "")
+
+    # Two questions per episode was twice the friction for no extra truth.
+    assert sum(1 for p in ask.prompts if "Which of these" in p) == 1
+    assert not any("Primary reason" in line for line in ask.output)
+
+
+@pytest.mark.parametrize(
+    "key, outcome, reason",
+    [
+        ("1", "partial", "estimate"),
+        ("2", "not_started", "avoided"),
+        ("3", "not_started", "capacity"),
+        ("4", "not_started", "blocked"),
+        ("5", "progressed", "follow_up"),
+    ],
+)
+def test_each_offered_answer_maps_to_a_pair(ask, key, outcome, reason):
+    ask.setup(tasks=[a_task(uuid="a")], blocks=[a_block("a", at(0, 9), 60)])
+    ask.run(key, "", "")
+
+    (stored,) = ask.stored()
+    assert (stored.outcome, stored.reason) == (outcome, reason)
+
+
+def test_the_options_are_offered_in_plain_language(ask):
+    ask.setup(tasks=[a_task(uuid="a")], blocks=[a_block("a", at(0, 9), 60)])
     ask.run("")
 
-    assert "block ended with the task still open" in ask.text
-    assert "Suggests: likely unfinished" in ask.text
+    text = ask.text
+    # Not the internal vocabulary: nothing here should read as a schema.
+    for jargon in ("not_started", "follow_up", "OUTCOME", "reprioritized"):
+        assert jargon not in text
+    assert "put it off" in text
+    assert "needs rescheduling" in text
 
 
-def test_an_empty_answer_skips_and_leaves_the_episode_open(ask):
+def test_done_and_cancelled_are_not_offered(ask):
+    # A task you finished gets `task done`; one you gave up on gets
+    # `task delete`. Neither is something you'd come here to say.
     ask.setup(tasks=[a_task(uuid="a")], blocks=[a_block("a", at(0, 9), 60)])
-    summary = ask.run("")
+    ask.run("")
 
-    assert (summary.recorded, summary.skipped) == (0, 1)
-    assert ask.stored() == []
+    lowered = ask.text.lower()
+    assert "cancelled" not in lowered
+    assert "unknown" not in lowered
+
+
+def test_time_is_not_asked_about_when_nothing_was_started(ask):
+    ask.setup(tasks=[a_task(uuid="a")], blocks=[a_block("a", at(0, 9), 60)])
+    ask.run("2", "")
+    assert not any("minutes did you spend" in p.lower() for p in ask.prompts)
+
+
+def test_time_is_asked_about_when_work_happened(ask):
+    ask.setup(tasks=[a_task(uuid="a")], blocks=[a_block("a", at(0, 9), 60)])
+    ask.run("5", "45", "")
+
+    assert any("minutes did you spend" in p.lower() for p in ask.prompts)
+    (stored,) = ask.stored()
+    assert stored.actual_minutes == 45
 
 
 def test_q_stops_and_keeps_what_was_answered(ask):
@@ -471,7 +523,7 @@ def test_q_stops_and_keeps_what_was_answered(ask):
         tasks=[a_task(uuid="a"), a_task(uuid="b")],
         blocks=[a_block("a", at(0, 9), 60), a_block("b", at(1, 9), 60)],
     )
-    summary = ask.run("n", "w", "", "q")
+    summary = ask.run("3", "", "q")
 
     assert summary.recorded == 1
     assert "Stopped" in ask.text
@@ -480,49 +532,31 @@ def test_q_stops_and_keeps_what_was_answered(ask):
 def test_actual_minutes_are_never_defaulted_to_the_estimate(ask):
     # "Unknown remains unknown and never silently becomes the estimate."
     ask.setup(tasks=[a_task(uuid="a", estimate=60)], blocks=[a_block("a", at(0, 9), 60)])
-    ask.run("p", "e", "", "")
+    ask.run("1", "", "")
 
     (stored,) = ask.stored()
     assert stored.actual_minutes is None
 
 
-def test_a_done_outcome_is_not_asked_why_it_was_missed(ask):
-    # There was no miss to explain; the task record was just late.
-    ask.setup(tasks=[a_task(uuid="a")], blocks=[a_block("a", at(0, 9), 60)])
-    ask.run("d", "", "")
-
-    assert not any("Primary reason" in line for line in ask.output)
-    (stored,) = ask.stored()
-    assert stored.outcome == "done"
-    assert stored.classified is False
-
-
 def test_a_bad_key_re_asks_rather_than_guessing(ask):
     ask.setup(tasks=[a_task(uuid="a")], blocks=[a_block("a", at(0, 9), 60)])
-    ask.run("z", "n", "w", "")
+    ask.run("9", "3", "")
 
-    assert any("one of" in line for line in ask.output)
+    assert any("Enter to skip" in line for line in ask.output)
     (stored,) = ask.stored()
     assert stored.outcome == "not_started"
 
 
-def test_a_full_word_works_as_well_as_a_key(ask):
-    ask.setup(tasks=[a_task(uuid="a")], blocks=[a_block("a", at(0, 9), 60)])
-    ask.run("partial", "blocked", "", "")
-    (stored,) = ask.stored()
-    assert (stored.outcome, stored.reason) == ("partial", "blocked")
-
-
 def test_nonsense_minutes_are_re_asked(ask):
     ask.setup(tasks=[a_task(uuid="a")], blocks=[a_block("a", at(0, 9), 60)])
-    ask.run("p", "e", "loads", "45", "")
+    ask.run("1", "loads", "45", "")
     (stored,) = ask.stored()
     assert stored.actual_minutes == 45
 
 
 def test_zero_minutes_is_refused(ask):
     ask.setup(tasks=[a_task(uuid="a")], blocks=[a_block("a", at(0, 9), 60)])
-    ask.run("p", "e", "0", "30", "")
+    ask.run("1", "0", "30", "")
     (stored,) = ask.stored()
     assert stored.actual_minutes == 30
 
@@ -548,7 +582,7 @@ def test_a_non_interactive_run_lists_instead_of_guessing(ask):
 
 def test_running_twice_does_not_ask_again(ask):
     ask.setup(tasks=[a_task(uuid="a")], blocks=[a_block("a", at(0, 9), 60)])
-    ask.run("n", "w", "")
+    ask.run("3", "")
     second = ask.run()
 
     assert second.found == 0
@@ -556,7 +590,7 @@ def test_running_twice_does_not_ask_again(ask):
 
 def test_the_check_in_writes_nothing_but_reflections(ask, isolated_journal):
     ask.setup(tasks=[a_task(uuid="a")], blocks=[a_block("a", at(0, 9), 60)])
-    ask.run("n", "w", "")
+    ask.run("3", "")
 
     assert journal.load().records == []
     assert reflections.path().is_file()

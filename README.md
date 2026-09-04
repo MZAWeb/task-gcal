@@ -181,24 +181,37 @@ being old. Plenty of old tasks are fine where they are.
 ### `task-gcal checkin`
 
 The **optional** retrospective. It walks scheduled blocks that have ended
-and haven't been explained yet, and asks two questions:
+and haven't been explained yet, and asks one question:
 
 ```text
 Tue 08 Sep 09:00  Write proposal (estimated 60m)
   Tue 08 Sep 10:00  block ended with the task still open (60m planned)
   Wed 09 Sep 18:00  due date moved later, after the old date had passed (+2d)
   Suggests: likely unfinished, then deferred
-  What happened? [d]one / [p]artial / [n]ot started / [x]cancelled / [u]nknown: p
-  Primary reason:
-    [e] estimate or scope was wrong
-    [b] blocked by a dependency
-    [w] week changed or capacity disappeared
-    [r] consciously reprioritized
-    [a] avoided it
-    [u] unknown or other
-  Reason: a
-  Actual minutes (optional): 20
+    1. Made a start, but it needs more time than I set aside
+    2. Didn't feel like starting it, so I put it off
+    3. Was busy with something else — needs rescheduling
+    4. Blocked on someone or something else, so it has to wait
+    5. Did this session's work; there's a follow-up still to come
+  Which of these? 1
+  How many minutes did you spend on it (60m set aside)? 20
+  Anything worth remembering?
 ```
+
+The stored record still has two dimensions — *what happened* and *why* —
+because the metrics need them apart. The prompt doesn't: of the thirty
+combinations those axes allow, about five actually happen, so it offers
+those five and maps each to a pair.
+
+"Done" and "cancelled" aren't offered on purpose. A task you genuinely
+finished gets `task done`; one you gave up on gets `task delete`. Neither
+is something you'd come here to say. Nor is "unknown" — pressing Enter
+skips, which leaves the episode open to answer later, and that's the
+honest version of not knowing.
+
+Option 5 is deliberately *not* counted as friction: work that always
+needed another sitting isn't a problem, and counting it would make good
+planning look like one.
 
 Run it daily, every few days, or not at all — reflections stay open until
 answered, so `task-gcal review --week --reflect` works just as well as a

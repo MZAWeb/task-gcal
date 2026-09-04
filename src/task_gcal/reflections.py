@@ -35,16 +35,24 @@ SCHEMA_VERSION = 1
 FILENAME = "reflections.jsonl"
 
 # What happened. Deliberately not a scale: `partial` is not "half of done",
-# and `cancelled` is a legitimate outcome rather than a failed one.
-OUTCOME_DONE = "done"
+# and `progressed` is not a lesser `done`.
 OUTCOME_PARTIAL = "partial"
 OUTCOME_NOT_STARTED = "not_started"
+# The session did what it was for and the task continues — deliberate
+# multi-session work, or something finished but awaiting follow-up. Not a
+# miss, so the friction mix leaves it out.
+OUTCOME_PROGRESSED = "progressed"
+# Retained so records already on disk stay readable, but no longer offered:
+# a task you actually finished gets `task done`, and one you gave up on gets
+# `task delete` — neither is something you'd come here to say.
+OUTCOME_DONE = "done"
 OUTCOME_CANCELLED = "cancelled"
 OUTCOME_UNKNOWN = "unknown"
 OUTCOMES = (
-    OUTCOME_DONE,
     OUTCOME_PARTIAL,
     OUTCOME_NOT_STARTED,
+    OUTCOME_PROGRESSED,
+    OUTCOME_DONE,
     OUTCOME_CANCELLED,
     OUTCOME_UNKNOWN,
 )
@@ -56,6 +64,10 @@ REASON_BLOCKED = "blocked"
 REASON_CAPACITY = "capacity"
 REASON_REPRIORITIZED = "reprioritized"
 REASON_AVOIDED = "avoided"
+# Nothing went wrong: the work was always going to take more than one
+# sitting. Counting it as friction would make good planning look like a
+# problem.
+REASON_FOLLOW_UP = "follow_up"
 REASON_UNKNOWN = "unknown"
 REASONS = (
     REASON_ESTIMATE,
@@ -63,6 +75,7 @@ REASONS = (
     REASON_CAPACITY,
     REASON_REPRIORITIZED,
     REASON_AVOIDED,
+    REASON_FOLLOW_UP,
     REASON_UNKNOWN,
 )
 
@@ -72,13 +85,15 @@ REASON_LABELS = {
     REASON_CAPACITY: "week changed or capacity disappeared",
     REASON_REPRIORITIZED: "consciously reprioritized",
     REASON_AVOIDED: "avoided it",
+    REASON_FOLLOW_UP: "always needed more than one sitting",
     REASON_UNKNOWN: "unknown or other",
 }
 
 OUTCOME_LABELS = {
-    OUTCOME_DONE: "done",
     OUTCOME_PARTIAL: "partial",
     OUTCOME_NOT_STARTED: "not started",
+    OUTCOME_PROGRESSED: "progressed",
+    OUTCOME_DONE: "done",
     OUTCOME_CANCELLED: "cancelled",
     OUTCOME_UNKNOWN: "unknown",
 }
@@ -98,6 +113,9 @@ class Reflection:
     covers_until: datetime
     actual_minutes: Optional[int] = None
     note: Optional[str] = None
+    # Block time the episode set aside, recorded alongside the answer. None
+    # can't say whether the actual was more or less than planned.
+    planned_minutes: Optional[int] = None
 
     @property
     def classified(self) -> bool:
@@ -117,6 +135,8 @@ class Reflection:
         }
         if self.actual_minutes is not None:
             out["actual_minutes"] = self.actual_minutes
+        if self.planned_minutes is not None:
+            out["planned_minutes"] = self.planned_minutes
         if self.note:
             out["note"] = self.note
         return out
@@ -130,6 +150,7 @@ class Reflection:
         outcome = raw.get("outcome")
         reason = raw.get("reason")
         minutes = raw.get("actual_minutes")
+        planned = raw.get("planned_minutes")
         return cls(
             episode=episode,
             task_uuid=raw.get("task_uuid") or "",
@@ -137,11 +158,8 @@ class Reflection:
             reason=reason if reason in REASONS else REASON_UNKNOWN,
             at=at,
             covers_until=_dt(raw.get("covers_until")) or at,
-            actual_minutes=(
-                minutes
-                if isinstance(minutes, int) and not isinstance(minutes, bool)
-                else None
-            ),
+            actual_minutes=_minutes(minutes),
+            planned_minutes=_minutes(planned),
             note=raw.get("note") or None,
         )
 
@@ -207,6 +225,12 @@ def answered_until(answers: dict[str, Reflection], uuid: str) -> Optional[dateti
     """The latest evidence already accounted for on this task, if any."""
     existing = for_task(answers, uuid)
     return existing[-1].covers_until if existing else None
+
+
+def _minutes(raw) -> Optional[int]:
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return raw
+    return None
 
 
 def _iso(moment: datetime) -> str:

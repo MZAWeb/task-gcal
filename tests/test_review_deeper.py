@@ -415,75 +415,51 @@ def test_a_done_outcome_is_not_counted_as_a_miss(review, isolated_journal):
     assert section.data["reasons"] == {"capacity": 1}
 
 
-def test_actual_time_uses_finished_work_only(review, isolated_journal):
-    # 20 minutes spent on something unfinished says nothing about whether the
-    # estimate was right.
+def test_time_used_is_compared_with_the_block_not_the_estimate(review, isolated_journal):
+    # None of the offered answers means "the task is finished", so an actual
+    # can't say whether an estimate was right. It can say whether the time
+    # booked got used, which is a different and answerable question.
+    reflections.append(
+        a_reflection(
+            episode="a@1",
+            outcome="partial",
+            actual_minutes=20,
+            planned_minutes=60,
+        )
+    )
+    review.tasks(a_task(uuid="a", estimate=240))
+
+    text = "\n".join(data(review, friction.KEY).detail)
+    assert "20m of the 1h set aside" in text
+    assert "33%" in text
+    assert "says nothing about the estimates" in text
+
+
+def test_an_actual_with_no_block_length_is_not_a_share(review, isolated_journal):
+    # Older records predate `planned_minutes`; a share needs both halves.
     reflections.append(
         a_reflection(episode="a@1", outcome="partial", actual_minutes=20)
     )
-    review.tasks(a_task(uuid="a", estimate=120))
-
-    text = "\n".join(data(review, friction.KEY).detail)
-    assert "no finished work with an actual" in text
-
-
-def test_actual_time_is_reported_for_finished_work(review, isolated_journal):
-    reflections.append(
-        a_reflection(episode="a@1", outcome="done", actual_minutes=90)
-    )
     review.tasks(a_task(uuid="a", estimate=60))
 
-    text = "\n".join(data(review, friction.KEY).detail)
-    assert "1.50x" in text
-    assert "these tasks only" in text
+    assert "no actuals recorded" in "\n".join(data(review, friction.KEY).detail)
 
 
-def test_the_mix_is_compared_with_the_previous_period(review, isolated_journal):
+def test_a_planned_continuation_is_not_counted_as_friction(review, isolated_journal):
+    # Work that always needed another sitting isn't friction, and counting it
+    # would make good planning look like a problem.
     reflections.append(
-        a_reflection(episode="p@1", reason="capacity", covers_until=at(-7, 10))
+        a_reflection(episode="a@1", outcome="progressed", reason="follow_up")
     )
     reflections.append(
-        a_reflection(episode="p@2", reason="avoided", covers_until=at(-7, 11))
+        a_reflection(episode="a@2", outcome="not_started", reason="capacity")
     )
-    reflections.append(a_reflection(episode="a@1", reason="capacity"))
-    reflections.append(a_reflection(episode="a@2", reason="capacity"))
     review.tasks(a_task(uuid="a"))
 
-    text = "\n".join(data(review, friction.KEY).detail)
-    assert "Since last week" in text
-    assert "avoided -1" in text
-    assert "capacity +1" in text
-
-
-def test_a_shift_says_nothing_without_a_previous_period(review, isolated_journal):
-    reflections.append(a_reflection(reason="capacity"))
-    review.tasks(a_task(uuid="a"))
-
-    text = "\n".join(data(review, friction.KEY).detail)
-    assert "Since last" not in text
-
-
-def test_an_unchanged_mix_says_so(review, isolated_journal):
-    reflections.append(
-        a_reflection(episode="p@1", reason="capacity", covers_until=at(-7, 10))
-    )
-    reflections.append(a_reflection(episode="a@1", reason="capacity"))
-    review.tasks(a_task(uuid="a"))
-
-    assert "the mix is unchanged" in "\n".join(data(review, friction.KEY).detail)
-
-
-def test_a_shift_never_calls_one_reason_better_than_another(review, isolated_journal):
-    # Ranking answers is how you train someone to stop giving honest ones.
-    reflections.append(
-        a_reflection(episode="p@1", reason="avoided", covers_until=at(-7, 10))
-    )
-    reflections.append(a_reflection(episode="a@1", reason="capacity"))
-    review.tasks(a_task(uuid="a"))
-
-    text = "\n".join(data(review, friction.KEY).detail).lower()
-    for judgement in ("improved", "worse", "better", "good", "bad"):
-        assert judgement not in text
+    section = data(review, friction.KEY)
+    assert section.data["reasons"] == {"capacity": 1}
+    assert section.data["continuations"] == 1
+    assert "not friction" in "\n".join(section.detail)
 
 
 def test_patterns_wait_for_a_sample(review, isolated_journal):

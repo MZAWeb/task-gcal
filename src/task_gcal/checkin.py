@@ -2,16 +2,29 @@
 
 Optional and retrospective, not a daily habit requirement. It walks scheduled
 blocks that have ended and haven't been explained yet — whether from yesterday
-or from a week ago — and asks two questions about each. Run it daily, every
+or from a week ago — and asks *one* question about each. Run it daily, every
 few days, or not at all; reflections stay open until answered, so the weekly
 review works just as well as a morning routine.
+
+**One question, five answers.** The stored record still has two dimensions —
+what happened, and why — because the metrics need them apart. But the prompt
+doesn't: of the thirty combinations those two axes allow, about five actually
+happen, so the question offers those five in the words you'd use out loud and
+maps each to a pair. Two questions per episode was twice the friction for no
+extra truth.
+
+Two outcomes are deliberately not offered. A task you genuinely finished gets
+`task done` and one you gave up on gets `task delete` — neither is something
+you'd come here to say. Nor is "unknown": pressing Enter already skips, which
+leaves the episode open to answer later, and that is the honest version of
+not knowing.
 
 What it will not do, and why each matters:
 
 - **It never records an outcome without confirmation.** Existing evidence may
   suggest a commitment wasn't met; only you can say what happened.
-- **It never guesses a reason.** `unknown` is offered, kept, and reported as
-  missing classification rather than folded into a plausible bucket.
+- **It never guesses.** Skipping leaves the episode open rather than filing it
+  under a plausible cause.
 - **Unknown time stays unknown.** Actual minutes are optional and never
   default to the estimate — a fabricated actual is worse than no actual.
 - **It asks about an episode, not a block.** Several passed blocks and a
@@ -29,18 +42,14 @@ from typing import Callable, Optional
 from . import reflections as reflections_mod
 from .config import Settings
 from .reflections import (
-    OUTCOME_CANCELLED,
-    OUTCOME_DONE,
     OUTCOME_NOT_STARTED,
     OUTCOME_PARTIAL,
-    OUTCOME_UNKNOWN,
+    OUTCOME_PROGRESSED,
     REASON_AVOIDED,
     REASON_BLOCKED,
     REASON_CAPACITY,
     REASON_ESTIMATE,
-    REASON_REPRIORITIZED,
-    REASON_UNKNOWN,
-    REASON_LABELS,
+    REASON_FOLLOW_UP,
     Reflection,
 )
 from .review.episodes import DEFAULT_SINCE_DAYS, Episode, find_unresolved
@@ -48,30 +57,59 @@ from .review.facts import collect
 from .review.observed import build_timelines
 from .review.periods import Period
 
-# Single-key answers, in the order the prompt lists them.
-_OUTCOME_KEYS = {
-    "d": OUTCOME_DONE,
-    "p": OUTCOME_PARTIAL,
-    "n": OUTCOME_NOT_STARTED,
-    "x": OUTCOME_CANCELLED,
-    "u": OUTCOME_UNKNOWN,
-}
 
-_REASON_KEYS = {
-    "e": REASON_ESTIMATE,
-    "b": REASON_BLOCKED,
-    "w": REASON_CAPACITY,
-    "r": REASON_REPRIORITIZED,
-    "a": REASON_AVOIDED,
-    "u": REASON_UNKNOWN,
-}
+@dataclass(frozen=True)
+class _Answer:
+    """One offered answer, and the `(outcome, reason)` pair it records."""
 
-# Outcomes that mean no commitment was actually missed, so asking *why* it was
-# missed would be a question with no answer.
-_NO_REASON_NEEDED = (OUTCOME_DONE, OUTCOME_CANCELLED)
+    key: str
+    label: str
+    outcome: str
+    reason: str
+    # Whether to follow up with "how long did it take?". Only worth asking
+    # when work actually happened.
+    ask_minutes: bool = False
 
-# Outcomes where time may have been spent, so an actual is worth offering.
-_TIME_MAY_HAVE_PASSED = (OUTCOME_DONE, OUTCOME_PARTIAL)
+
+# The five things that actually happen, in the words you'd use out loud. Order
+# is roughly how often each comes up. Each maps to a two-dimensional record,
+# so the friction mix and its coverage are unchanged by the shorter prompt.
+_ANSWERS: tuple[_Answer, ...] = (
+    _Answer(
+        "1",
+        "Made a start, but it needs more time than I set aside",
+        OUTCOME_PARTIAL,
+        REASON_ESTIMATE,
+        ask_minutes=True,
+    ),
+    _Answer(
+        "2",
+        "Didn't feel like starting it, so I put it off",
+        OUTCOME_NOT_STARTED,
+        REASON_AVOIDED,
+    ),
+    _Answer(
+        "3",
+        "Was busy with something else — needs rescheduling",
+        OUTCOME_NOT_STARTED,
+        REASON_CAPACITY,
+    ),
+    _Answer(
+        "4",
+        "Blocked on someone or something else, so it has to wait",
+        OUTCOME_NOT_STARTED,
+        REASON_BLOCKED,
+    ),
+    _Answer(
+        "5",
+        "Did this session's work; there's a follow-up still to come",
+        OUTCOME_PROGRESSED,
+        REASON_FOLLOW_UP,
+        ask_minutes=True,
+    ),
+)
+
+_BY_KEY = {answer.key: answer for answer in _ANSWERS}
 
 
 @dataclass
@@ -215,61 +253,55 @@ def _header(episode: Episode, tz) -> str:
 def _ask(
     episode: Episode, *, console: Console, now: datetime
 ) -> Optional[Reflection]:
-    outcome = _ask_choice(
-        console,
-        "  What happened? [d]one / [p]artial / [n]ot started / "
-        "[x]cancelled / [u]nknown: ",
-        _OUTCOME_KEYS,
-    )
-    if outcome is None:
+    for answer in _ANSWERS:
+        console.write(f"    {answer.key}. {answer.label}")
+    chosen = _ask_answer(console)
+    if chosen is None:
         return None
 
-    reason = REASON_UNKNOWN
-    if outcome not in _NO_REASON_NEEDED:
-        console.write("  Primary reason:")
-        for key, value in _REASON_KEYS.items():
-            console.write(f"    [{key}] {REASON_LABELS[value]}")
-        reason = _ask_choice(console, "  Reason: ", _REASON_KEYS) or REASON_UNKNOWN
-
-    actual = None
-    if outcome in _TIME_MAY_HAVE_PASSED:
-        actual = _ask_minutes(console)
-
-    note = _ask_text(console, "  Note (optional): ")
+    actual = (
+        _ask_minutes(console, planned=episode.planned_minutes)
+        if chosen.ask_minutes
+        else None
+    )
+    note = _ask_text(console, "  Anything worth remembering? ")
 
     return Reflection(
         episode=episode.key,
         task_uuid=episode.task.uuid,
-        outcome=outcome,
-        reason=reason,
+        outcome=chosen.outcome,
+        reason=chosen.reason,
         at=now,
         covers_until=episode.covers_until,
         actual_minutes=actual,
+        planned_minutes=episode.planned_minutes,
         note=note,
     )
 
 
-def _ask_choice(
-    console: Console, prompt: str, choices: dict[str, str]
-) -> Optional[str]:
+def _ask_answer(console: Console) -> Optional[_Answer]:
     while True:
-        raw = _read(console, prompt).strip().lower()
+        raw = _read(console, "  Which of these? ").strip().lower()
         if not raw:
-            return None  # skip
+            return None  # skip; the episode stays open
         if raw in ("q", "quit"):
             raise _Abort
-        if raw in choices:
-            return choices[raw]
-        # Also accept the full word, so `partial` works as well as `p`.
-        for value in choices.values():
-            if value == raw:
-                return value
-        console.write(f"  ? one of {', '.join(sorted(choices))}, or Enter to skip")
+        if raw in _BY_KEY:
+            return _BY_KEY[raw]
+        console.write(
+            f"  ? {', '.join(_BY_KEY)}, or Enter to skip and come back to it"
+        )
 
 
-def _ask_minutes(console: Console) -> Optional[int]:
+def _ask_minutes(console: Console, *, planned: Optional[int]) -> Optional[int]:
+    # Naming the time set aside matters when an episode coalesced several
+    # blocks: "how long did it take" is otherwise ambiguous about whether it
+    # means one sitting or all of them.
+    aside = f" ({planned}m set aside)" if planned else ""
     while True:
-        raw = _read(console, "  Actual minutes (optional): ").strip()
+        raw = _read(
+            console, f"  How many minutes did you spend on it{aside}? "
+        ).strip()
         if not raw:
             # Unknown stays unknown, and never becomes the estimate.
             return None
