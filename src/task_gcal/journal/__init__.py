@@ -13,6 +13,9 @@ Two invariants, enforced by the module split rather than by discipline:
 - `store.py` reads and returns raw records. Nothing derived is ever stored,
   so every metric is recomputed from observations and a definition change
   can't leave stale numbers behind.
+
+It holds placements only. Task fields live in `changes/`, harvested from
+Taskwarrior's own log — which also means this file contains no task titles.
 """
 
 from __future__ import annotations
@@ -23,20 +26,15 @@ from .observe import (
     DETAIL_MINIMAL,
     DETAIL_OFF,
     build_record,
-    detail_fields,
-    observe_tasks,
     record_run,
 )
 from .paths import data_dir, run_file, runs_dir
 from .records import (
     METRICS_VERSION,
-    MODE_BACKFILL,
     MODE_SCHEDULE,
-    MODE_SNAPSHOT,
     SCHEMA_VERSION,
-    ObservedBlock,
+    PlacementObservation,
     RunRecord,
-    TaskObservation,
     settings_hash,
 )
 from .store import (
@@ -58,22 +56,17 @@ __all__ = [
     "JournalRead",
     "JournalWriteError",
     "METRICS_VERSION",
-    "MODE_BACKFILL",
     "MODE_SCHEDULE",
-    "MODE_SNAPSHOT",
-    "ObservedBlock",
     "RunRecord",
     "SCHEMA_VERSION",
-    "TaskObservation",
+    "PlacementObservation",
     "append",
     "build_record",
     "data_dir",
     "definition_boundaries",
-    "detail_fields",
     "iter_observed_days",
     "latest_settings_hash",
     "load",
-    "observe_tasks",
     "record_run",
     "run_file",
     "run_files",

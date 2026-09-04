@@ -16,12 +16,10 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 from .paths import ensure_private, run_file, runs_dir
-from .records import MODE_SCHEDULE, MODE_SNAPSHOT, RunRecord
+from .records import MODE_SCHEDULE, RunRecord
 
-# Modes whose records are live observations of the current setup. Backfill is
-# excluded: it reconstructs the past under today's settings, so its
-# `settings_hash` says nothing about what was in force at the time.
-_LIVE_MODES = (MODE_SCHEDULE, MODE_SNAPSHOT)
+# Modes whose records describe the setup that was actually in force.
+_LIVE_MODES = (MODE_SCHEDULE,)
 
 
 class JournalWriteError(Exception):

@@ -84,7 +84,7 @@ def test_a_healthy_setup_has_no_failures(health):
             settings=health.settings,
             mode=journal.MODE_SCHEDULE,
             at=NOW,
-            observations=(),
+            placements=(),
         )
     )
     assert health.run() == 0
@@ -195,7 +195,7 @@ def test_recorded_runs_are_reported(health):
                 settings=health.settings,
                 mode=journal.MODE_SCHEDULE,
                 at=NOW - timedelta(days=day),
-                observations=(),
+                placements=(),
             )
         )
     health.run()
@@ -214,7 +214,7 @@ def test_journal_days_are_counted_in_the_local_zone(health):
                 settings=health.settings,
                 mode=journal.MODE_SCHEDULE,
                 at=NOW - timedelta(days=day),
-                observations=(),
+                placements=(),
             )
         )
     health.run()
@@ -228,7 +228,7 @@ def test_unreadable_journal_lines_are_surfaced(health, isolated_journal):
             settings=health.settings,
             mode=journal.MODE_SCHEDULE,
             at=NOW,
-            observations=(),
+            placements=(),
         )
     )
     path = next((isolated_journal / "runs").glob("*.jsonl"))

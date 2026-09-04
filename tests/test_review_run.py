@@ -284,7 +284,7 @@ def test_journal_records_in_the_period_are_read(runner, isolated_journal):
             settings=SETTINGS,
             mode=journal.MODE_SCHEDULE,
             at=at(0, 12),
-            observations=(),
+            placements=(),
         )
     )
     runner.run(ReviewRequest(fmt="json"))
@@ -305,7 +305,7 @@ def test_a_settings_change_inside_the_period_is_annotated(
                 settings=settings,
                 mode=journal.MODE_SCHEDULE,
                 at=at(offset, 12),
-                observations=(),
+                placements=(),
             )
         )
     runner.run(ReviewRequest(fmt="json"))

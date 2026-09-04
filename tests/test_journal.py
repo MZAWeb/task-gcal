@@ -18,47 +18,34 @@ import pytest
 from task_gcal import journal
 from task_gcal.config import Settings
 from task_gcal.journal import paths, records, store
-from task_gcal.taskw import TaskInfo
 
 from conftest import NOW, at
 
 SETTINGS = Settings(timezone="UTC")
 
+# A mode no version of this tool writes, for the "tolerate the unfamiliar"
+# cases. Records we don't recognise must be readable but must not be counted.
+FOREIGN_MODE = "some-future-mode"
 
-def a_task(**kwargs) -> TaskInfo:
-    """A TaskInfo shaped the way `load_next_tasks` builds them."""
+
+def a_placement(**kwargs) -> journal.PlacementObservation:
     base = dict(
-        uuid="u1",
-        id=7,
-        description="write the thing",
-        urgency=12.5,
-        due=at(2, 17),
-        scheduled=None,
-        wait=None,
-        estimate_minutes=60,
-        project="work",
-        tags=["deep"],
-        annotations=[],
-        overrides_raw=None,
-        status="pending",
-        entry=at(-3, 9),
-        end=None,
+        task_uuid="u1",
+        event_id="ev1",
+        start=at(0, 9),
+        end=at(0, 10),
+        action="create",
     )
     base.update(kwargs)
-    return TaskInfo(**base)
+    return journal.PlacementObservation(**base)
 
 
-def a_record(*, tasks=None, blocks=None, settings=SETTINGS, mode=None, at=NOW):
-    """`build_record` with the observation step folded in, as callers do."""
+def a_record(*, placements=None, settings=SETTINGS, mode=None, at=NOW):
     return journal.build_record(
         settings=settings,
         mode=mode or journal.MODE_SCHEDULE,
         at=at,
-        observations=journal.observe_tasks(
-            tasks if tasks is not None else [a_task()],
-            blocks=blocks or {},
-            detail=settings.journal_detail,
-        ),
+        placements=(a_placement(),) if placements is None else tuple(placements),
     )
 
 
@@ -104,11 +91,9 @@ def test_the_run_file_is_named_by_utc_month():
 
 def test_a_record_survives_a_round_trip():
     record = a_record(
-        blocks={
-            "u1": journal.ObservedBlock(
-                start=at(0, 9), end=at(0, 10), action="create"
-            )
-        },
+        placements=[
+            a_placement(moved_reason="a meeting landed on it", action="update")
+        ]
     )
     back = records.RunRecord.from_dict(json.loads(record.to_line()))
 
@@ -116,33 +101,35 @@ def test_a_record_survives_a_round_trip():
     assert back.run_id == record.run_id
     assert back.at == NOW
     assert back.mode == journal.MODE_SCHEDULE
-    (task,) = back.tasks
-    assert task.uuid == "u1"
-    assert task.description == "write the thing"
-    assert task.estimate_minutes == 60
-    assert task.due == at(2, 17)
-    assert task.project == "work"
-    assert task.tags == ("deep",)
-    assert task.block.start == at(0, 9)
-    assert task.block.action == "create"
+    (placement,) = back.placements
+    assert placement.task_uuid == "u1"
+    assert placement.event_id == "ev1"
+    assert placement.start == at(0, 9)
+    assert placement.end == at(0, 10)
+    assert placement.action == "update"
+    assert placement.moved_reason == "a meeting landed on it"
 
 
 def test_a_record_is_exactly_one_line():
-    # A description with a newline in it would otherwise split one record
-    # into two unparseable halves.
-    record = a_record(tasks=[a_task(description="line one\nline two")])
+    # Nothing we write should be able to split one record into two
+    # unparseable halves, whatever a reason string contains.
+    record = a_record(placements=[a_placement(moved_reason="line one\nline two")])
     assert "\n" not in record.to_line()
 
 
 def test_absent_values_are_omitted_rather_than_stored_as_null():
-    record = a_record(
-        tasks=[a_task(project=None, tags=[], scheduled=None, end=None)]
-    )
-    (raw,) = record.to_dict()["tasks"]
-    assert "project" not in raw
-    assert "tags" not in raw
-    assert "scheduled" not in raw
-    assert "placed_start" not in raw
+    record = a_record(placements=[a_placement(action=None)])
+    (raw,) = record.to_dict()["placements"]
+    assert "action" not in raw
+    assert "moved_reason" not in raw
+
+
+def test_no_task_titles_reach_the_journal():
+    # Titles live in the change history, harvested from Taskwarrior's own log.
+    # Keeping them out of here means one source of truth, and a journal you
+    # can hand to someone without handing over what you're working on.
+    fields = set(records.PlacementObservation.__dataclass_fields__)
+    assert not fields & {"description", "description_hash", "summary", "project"}
 
 
 def test_nothing_derived_is_stored():
@@ -150,7 +137,7 @@ def test_nothing_derived_is_stored():
     # that meant something else. If a total or score ever appears here,
     # reviews stop being reproducible from raw observations.
     record = a_record()
-    keys = set(record.to_dict()) | set(record.to_dict()["tasks"][0])
+    keys = set(record.to_dict()) | set(record.to_dict()["placements"][0])
     assert not {
         k for k in keys
         if any(word in k for word in ("total", "score", "streak", "count", "rate"))
@@ -162,7 +149,7 @@ def test_nothing_derived_is_stored():
 # ---------------------------------------------------------------------------
 
 def test_append_creates_a_private_file_in_a_private_directory(isolated_journal):
-    path = journal.append(a_record(mode=journal.MODE_SNAPSHOT))
+    path = journal.append(a_record())
 
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
@@ -170,14 +157,14 @@ def test_append_creates_a_private_file_in_a_private_directory(isolated_journal):
 
 def test_appends_accumulate_in_one_monthly_file(isolated_journal):
     for _ in range(3):
-        journal.append(a_record(mode=journal.MODE_SNAPSHOT))
+        journal.append(a_record())
     (path,) = list((isolated_journal / "runs").glob("*.jsonl"))
     assert len(path.read_text().splitlines()) == 3
 
 
 def test_records_from_different_months_go_to_different_files(isolated_journal):
     for when in (NOW, NOW + timedelta(days=40)):
-        journal.append(a_record(mode=journal.MODE_SNAPSHOT, at=when))
+        journal.append(a_record(at=when))
     names = sorted(p.name for p in (isolated_journal / "runs").glob("*.jsonl"))
     assert names == ["2026-09.jsonl", "2026-10.jsonl"]
 
@@ -187,7 +174,7 @@ def test_a_write_failure_is_reported_not_swallowed(isolated_journal):
     # A file where the runs directory should be: mkdir will fail.
     (isolated_journal / "runs").write_text("not a directory")
     with pytest.raises(store.JournalWriteError):
-        journal.append(a_record(mode=journal.MODE_SNAPSHOT))
+        journal.append(a_record())
 
 
 def test_record_run_never_raises_when_the_journal_is_broken(
@@ -198,7 +185,7 @@ def test_record_run_never_raises_when_the_journal_is_broken(
 
     written = journal.record_run(
         settings=SETTINGS, mode=journal.MODE_SCHEDULE, at=NOW,
-        tasks=[a_task()], blocks={},
+        placements=(a_placement(),),
     )
     assert written is False
     assert "journal not written" in capsys.readouterr().err
@@ -207,32 +194,10 @@ def test_record_run_never_raises_when_the_journal_is_broken(
 def test_detail_off_writes_nothing(isolated_journal):
     written = journal.record_run(
         settings=replace(SETTINGS, journal_detail=journal.DETAIL_OFF),
-        mode=journal.MODE_SCHEDULE, at=NOW, tasks=[a_task()], blocks={},
+        mode=journal.MODE_SCHEDULE, at=NOW, placements=(a_placement(),),
     )
     assert written is False
     assert not (isolated_journal / "runs").exists()
-
-
-MINIMAL = replace(SETTINGS, journal_detail=journal.DETAIL_MINIMAL)
-
-
-def test_minimal_detail_hashes_the_description(isolated_journal):
-    record = a_record(settings=MINIMAL)
-    (raw,) = record.to_dict()["tasks"]
-    assert "description" not in raw
-    assert len(raw["description_hash"]) == 12
-    assert "write the thing" not in record.to_line()
-
-
-def test_minimal_detail_still_notices_a_retitle():
-    def digest(description):
-        record = a_record(
-            settings=MINIMAL, tasks=[a_task(description=description)]
-        )
-        return record.tasks[0].description_hash
-
-    assert digest("before") != digest("after")
-    assert digest("same") == digest("same")
 
 
 # ---------------------------------------------------------------------------
@@ -240,8 +205,7 @@ def test_minimal_detail_still_notices_a_retitle():
 # ---------------------------------------------------------------------------
 
 def append_at(when, **kwargs):
-    mode = kwargs.pop("mode", journal.MODE_SNAPSHOT)
-    journal.append(a_record(mode=mode, at=when, tasks=[a_task(**kwargs)]))
+    journal.append(a_record(at=when, **kwargs))
 
 
 def test_load_returns_records_oldest_first(isolated_journal):
@@ -278,7 +242,7 @@ def test_until_is_exclusive(isolated_journal):
 
 def test_modes_can_be_filtered(isolated_journal):
     append_at(NOW, mode=journal.MODE_SCHEDULE)
-    append_at(NOW + timedelta(hours=1), mode=journal.MODE_SNAPSHOT)
+    append_at(NOW + timedelta(hours=1), mode=FOREIGN_MODE)
 
     got = journal.load(modes=(journal.MODE_SCHEDULE,))
     assert [r.mode for r in got.records] == [journal.MODE_SCHEDULE]
@@ -335,7 +299,7 @@ def test_unknown_future_fields_are_kept_not_dropped(isolated_journal):
         isolated_journal, "2026-09",
         json.dumps({
             "schema": 99, "run_id": "future", "at": "2026-09-07T09:00:00Z",
-            "mode": "schedule", "lane_capacity": 480, "tasks": [],
+            "mode": "schedule", "lane_capacity": 480, "placements": [],
         }) + "\n",
     )
     (record,) = journal.load().records
@@ -348,40 +312,47 @@ def test_unknown_future_fields_are_kept_not_dropped(isolated_journal):
 def test_a_record_with_no_timestamp_is_unusable(isolated_journal):
     write_lines(
         isolated_journal, "2026-09",
-        json.dumps({"schema": 1, "run_id": "x", "tasks": []}) + "\n",
+        json.dumps({"schema": 1, "run_id": "x", "placements": []}) + "\n",
     )
     got = journal.load()
     assert got.records == []
     assert got.unreadable_lines == 1
 
 
-def test_a_task_entry_with_no_uuid_is_skipped_but_the_record_stands(
+def test_a_placement_with_no_event_is_skipped_but_the_record_stands(
     isolated_journal,
 ):
+    # A block with no event id can't be followed from one run to the next,
+    # which is the only thing the placement log is for.
     write_lines(
         isolated_journal, "2026-09",
         json.dumps({
             "schema": 1, "run_id": "x", "at": "2026-09-07T09:00:00Z",
-            "tasks": [{"description": "orphan"}, {"uuid": "u1"}],
+            "placements": [
+                {"uuid": "u1", "start": "2026-09-07T09:00:00Z",
+                 "end": "2026-09-07T10:00:00Z"},
+                {"uuid": "u2", "event": "ev2", "start": "2026-09-07T09:00:00Z",
+                 "end": "2026-09-07T10:00:00Z"},
+            ],
         }) + "\n",
     )
     (record,) = journal.load().records
-    assert [t.uuid for t in record.tasks] == ["u1"]
+    assert [p.task_uuid for p in record.placements] == ["u2"]
 
 
-def test_an_unparseable_timestamp_degrades_to_missing(isolated_journal):
-    # Better to keep the rest of the observation than to drop the line.
+def test_a_placement_with_an_unreadable_time_is_skipped(isolated_journal):
+    # Unlike a task field, a block with no readable start isn't partially
+    # useful: every question asked of it is "when was it".
     write_lines(
         isolated_journal, "2026-09",
         json.dumps({
             "schema": 1, "run_id": "x", "at": "2026-09-07T09:00:00Z",
-            "tasks": [{"uuid": "u1", "due": "whenever", "estimate_minutes": 30}],
+            "placements": [{"uuid": "u1", "event": "ev1", "start": "whenever",
+                            "end": "2026-09-07T10:00:00Z"}],
         }) + "\n",
     )
     (record,) = journal.load().records
-    (task,) = record.tasks
-    assert task.due is None
-    assert task.estimate_minutes == 30
+    assert record.placements == ()
 
 
 # ---------------------------------------------------------------------------
@@ -455,9 +426,10 @@ def test_definition_boundaries_flag_a_settings_change():
     assert changed == [NOW + timedelta(days=2)]
 
 
-def test_backfill_records_are_not_definition_boundaries():
-    # Backfill reconstructs the past under *today's* settings, so its hash
-    # says nothing about what was in force at the time.
+def test_a_record_in_an_unfamiliar_mode_is_not_a_definition_boundary():
+    # Only a run that actually touched the calendar tells us what settings
+    # were in force. Anything else — a mode a later version writes, whatever
+    # it means — must not be read as "your settings changed and changed back".
     def record(mode, hash_value, offset):
         return records.RunRecord(
             run_id=f"r{offset}", at=NOW + timedelta(days=offset), mode=mode,
@@ -467,7 +439,7 @@ def test_backfill_records_are_not_definition_boundaries():
 
     assert store.definition_boundaries([
         record(journal.MODE_SCHEDULE, "aaa", 0),
-        record(journal.MODE_BACKFILL, "zzz", 1),
+        record(FOREIGN_MODE, "zzz", 1),
         record(journal.MODE_SCHEDULE, "aaa", 2),
     ]) == []
 
@@ -478,7 +450,7 @@ def test_observed_days_ignore_unhealthy_runs():
     def record(offset, ok):
         return records.RunRecord(
             run_id=f"r{offset}", at=NOW + timedelta(days=offset),
-            mode=journal.MODE_SNAPSHOT, timezone_name="UTC",
+            mode=journal.MODE_SCHEDULE, timezone_name="UTC",
             settings_hash="aaa", calendar_id="primary", report="next",
             source_ok=ok,
         )
@@ -495,7 +467,7 @@ def test_observed_days_are_deduplicated():
     def record(hours):
         return records.RunRecord(
             run_id=f"r{hours}", at=NOW + timedelta(hours=hours),
-            mode=journal.MODE_SNAPSHOT, timezone_name="UTC",
+            mode=journal.MODE_SCHEDULE, timezone_name="UTC",
             settings_hash="aaa", calendar_id="primary", report="next",
         )
 

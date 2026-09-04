@@ -19,12 +19,12 @@ from conftest import a_block, a_task, at
 SETTINGS = Settings(timezone="UTC")
 
 
-def snapshot(when, *, settings=SETTINGS):
+def a_run(when, *, settings=SETTINGS):
     return journal.build_record(
         settings=settings,
         mode=journal.MODE_SCHEDULE,
         at=when,
-        observations=(),
+        placements=(),
     )
 
 
@@ -171,7 +171,7 @@ def test_a_trend_needs_more_than_one_period(review, monkeypatch):
 
 def test_all_weeks_are_comparable_under_one_definition(review, isolated_journal):
     monthly(review).tasks(*completions(2, 4))
-    review.records(*[snapshot(at(-7 * w, 12)) for w in range(6)])
+    review.records(*[a_run(at(-7 * w, 12)) for w in range(6)])
 
     result = section(review)
     assert result.data["comparable_from"] is None
@@ -184,8 +184,8 @@ def test_a_settings_change_marks_the_earlier_weeks_incomparable(
     monthly(review).tasks(*completions(2, 4))
     changed = replace(SETTINGS, work_end_hour=21)
     review.records(
-        *[snapshot(at(-7 * w, 12), settings=changed) for w in range(4, 8)],
-        *[snapshot(at(-7 * w, 12)) for w in range(0, 4)],
+        *[a_run(at(-7 * w, 12), settings=changed) for w in range(4, 8)],
+        *[a_run(at(-7 * w, 12)) for w in range(0, 4)],
     )
 
     result = section(review)
@@ -203,8 +203,8 @@ def test_the_median_ignores_the_incomparable_weeks(review, isolated_journal):
     monthly(review).tasks(*completions(1, 2), *completions(6, 40))
     changed = replace(SETTINGS, work_end_hour=21)
     review.records(
-        *[snapshot(at(-7 * w, 12), settings=changed) for w in range(4, 9)],
-        *[snapshot(at(-7 * w, 12)) for w in range(0, 4)],
+        *[a_run(at(-7 * w, 12), settings=changed) for w in range(4, 9)],
+        *[a_run(at(-7 * w, 12)) for w in range(0, 4)],
     )
 
     result = section(review)
@@ -215,7 +215,7 @@ def test_a_week_with_no_observations_stays_comparable(review, isolated_journal):
     # It can't disagree with the current definition, so excluding it for
     # missing metadata would throw away usable history.
     monthly(review).tasks(*completions(2, 4))
-    review.records(snapshot(at(0, 12)))
+    review.records(a_run(at(0, 12)))
 
     result = section(review)
     (coverage,) = result.coverage
@@ -265,13 +265,13 @@ def polyline_points(html: str) -> int:
 
 def test_the_html_plots_only_the_comparable_tail(review, isolated_journal):
     monthly(review).tasks(*completions(2, 4))
-    review.records(*[snapshot(at(-7 * w, 12)) for w in range(12)])
+    review.records(*[a_run(at(-7 * w, 12)) for w in range(12)])
     unbroken = polyline_points(review.render("html", sections=("trends",)))
 
     changed = replace(SETTINGS, work_end_hour=21)
     review.records(
-        *[snapshot(at(-7 * w, 12), settings=changed) for w in range(6, 12)],
-        *[snapshot(at(-7 * w, 12)) for w in range(0, 6)],
+        *[a_run(at(-7 * w, 12), settings=changed) for w in range(6, 12)],
+        *[a_run(at(-7 * w, 12)) for w in range(0, 6)],
     )
     after_change = polyline_points(review.render("html", sections=("trends",)))
 

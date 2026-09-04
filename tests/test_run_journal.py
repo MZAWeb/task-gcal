@@ -23,9 +23,20 @@ def test_a_scheduling_run_records_the_placement_it_made(harness):
 
     (record,) = harness.journal()
     assert record.mode == journal.MODE_SCHEDULE
-    (task,) = record.tasks
-    assert task.block.start == at(0, 9)
-    assert task.block.action == "create"
+    (placement,) = record.placements
+    assert placement.start == at(0, 9)
+    assert placement.action == "create"
+
+
+def test_a_placement_is_recorded_against_the_event_it_landed_in(harness):
+    # Identity is the event, not the task: a block deleted and recreated
+    # elsewhere has to read as a new block rather than as the old one moving.
+    harness.tasks(task_row(uuid="u1", due=WED_5PM, estimate=60))
+    harness.run()
+
+    (placement,) = harness.journal()[0].placements
+    assert placement.event_id == harness.gcal.created[0]["id"]
+    assert placement.task_uuid == "u1"
 
 
 def test_a_scheduling_run_records_why_a_block_moved(harness):
@@ -35,19 +46,18 @@ def test_a_scheduling_run_records_why_a_block_moved(harness):
     harness.run()
 
     (record,) = harness.journal()
-    assert record.tasks[0].block.moved_reason == "overlaps a calendar event"
+    assert record.placements[0].moved_reason == "overlaps a calendar event"
 
 
-def test_a_run_records_tasks_it_could_not_place(harness):
-    # A task with no estimate has no block, but its state is still the
-    # observation that explains why nothing was scheduled for it.
+def test_a_task_with_no_block_is_not_in_the_placement_log(harness):
+    # The log describes blocks, and a task with no estimate never got one.
+    # Why it wasn't scheduled is a question about the task's fields, which
+    # come from Taskwarrior's own history rather than from here.
     harness.tasks(task_row(uuid="u1", due=WED_5PM, estimate=None))
     harness.run()
 
     (record,) = harness.journal()
-    (task,) = record.tasks
-    assert task.block is None
-    assert task.estimate_minutes is None
+    assert record.placements == ()
 
 
 def test_a_dry_run_records_nothing(harness):

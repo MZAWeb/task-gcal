@@ -18,7 +18,7 @@ from .config import Settings
 from .gcal import CalEvent, GCal
 from .changes import harvest as harvest_changes
 from .guard import removal_guard_error
-from .journal import MODE_SCHEDULE, ObservedBlock, record_run
+from .journal import MODE_SCHEDULE, PlacementObservation, record_run
 from .placement import (
     Decision,
     Placement,
@@ -85,10 +85,10 @@ def _apply_decision(
     description = event_description(t, tz)
     keeper = d.keeper
 
-    def _create() -> None:
+    def _create() -> Optional[str]:
         if dry_run:
-            return
-        gcal.create_event(
+            return None
+        return gcal.create_event(
             task_uuid=t.uuid,
             summary=summary,
             description=description,
@@ -103,9 +103,10 @@ def _apply_decision(
         # No keeper, or the keeper has already finished: create a fresh
         # event. In-progress and upcoming keepers are patched in place;
         # finished ones stay put as a record.
-        _create()
+        event_id = _create()
         action = "create"
     else:
+        event_id = keeper.id
         need_summary = keeper.summary != summary
         need_time = not (
             _almost_equal(keeper.start, d.start_utc)
@@ -146,7 +147,7 @@ def _apply_decision(
                 )
                 if not ok:
                     # Event vanished between list and patch; recreate.
-                    _create()
+                    event_id = _create()
                     action = "create"
         else:
             action = "unchanged"
@@ -158,6 +159,7 @@ def _apply_decision(
         action=action,
         past_due=d.past_due,
         moved_reason=d.moved_reason,
+        event_id=event_id,
     )
 
 
@@ -369,16 +371,19 @@ def reconcile(
             settings=settings,
             mode=MODE_SCHEDULE,
             at=now,
-            tasks=tasks,
-            blocks={
-                d.task.uuid: ObservedBlock(
+            placements=tuple(
+                PlacementObservation(
+                    task_uuid=d.task.uuid,
+                    event_id=p.event_id,
                     start=d.start_utc,
                     end=d.end_utc,
                     action=p.action,
                     moved_reason=d.moved_reason,
                 )
                 for d, p in zip(decisions, placed)
-            },
+                # No id means the write failed; there is no block to record.
+                if p.event_id
+            ),
         )
 
     print_report(

@@ -32,6 +32,11 @@ class Placement:
     # Set when a settled block had to be given up: why it was no longer
     # valid. None for a block that was new, or that never moved.
     moved_reason: Optional[str] = None
+    # The Google event this block lives in. The journal keys placements on it
+    # rather than on the task, so a block deleted and recreated elsewhere
+    # reads as a new block instead of the old one having moved. None on a dry
+    # run, which creates nothing.
+    event_id: Optional[str] = None
 
 
 @dataclass
