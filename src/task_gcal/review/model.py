@@ -26,6 +26,14 @@ from typing import Any, Mapping, Optional
 from .periods import Period
 
 
+def _ordinal(n: int) -> str:
+    if 10 <= n % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 @dataclass(frozen=True)
 class Coverage:
     """How much of what a number claims to measure was actually observed.
@@ -57,6 +65,14 @@ class Suggestion:
 
     text: str
     weight: float = 1.0
+    # How many whole periods back this same finding was already true, when a
+    # section can work that out. The closing line is the only part of the
+    # report with any authority, and the heaviest finding wins every week —
+    # so left alone it becomes furniture. Saying "this is the fourth week I've
+    # closed with this" is the tool noticing it's repeating itself, which is
+    # both more honest and more likely to force the decision than saying the
+    # same sentence again in the same tone.
+    already_true_for: int = 0
 
 
 @dataclass(frozen=True)
@@ -120,7 +136,15 @@ class Review:
             for suggestion in section.suggestions:
                 if best is None or suggestion.weight > best.weight:
                     best = suggestion
-        return best.text if best is not None else None
+        if best is None:
+            return None
+        if not best.already_true_for:
+            return best.text
+        running = best.already_true_for + 1
+        return (
+            f"{best.text} This is the {_ordinal(running)} {self.period.kind} "
+            "running that I've closed with this."
+        )
 
     @property
     def incomplete_sections(self) -> tuple[str, ...]:

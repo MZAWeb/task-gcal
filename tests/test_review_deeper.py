@@ -157,6 +157,45 @@ def test_a_third_push_becomes_the_reviews_closing_line(review):
     assert "3rd time" in adjustment
 
 
+def test_the_closing_line_says_when_it_is_repeating_itself(review):
+    # The heaviest finding wins every week, so left alone the closing line
+    # becomes furniture — and it's the only line with any authority. Positions
+    # are derived from the period rather than hard-coded: three pushes that
+    # had all happened by the end of last week, but not by the end of the week
+    # before, means this is the second week running.
+    period = review.period()
+    already = period.shifted(-1).end - timedelta(hours=1)
+    review.tasks(a_task(uuid="a", description="Prepare PIR", due=at(30, 17)))
+    review.changes(
+        *[
+            due_moved("a", at=already, frm=at(n, 17), to=at(n + 10, 17))
+            for n in (0, 10, 20)
+        ],
+        due_moved("a", at=period.start, frm=at(20, 17), to=at(30, 17)),
+    )
+    adjustment = review.review().adjustment
+
+    assert "Prepare PIR" in adjustment
+    assert "2nd week running that I've closed with this" in adjustment
+
+
+def test_a_finding_that_is_new_this_week_is_said_plainly(review):
+    # No "you have been told this before" when nobody has been told: all three
+    # pushes happened inside this period.
+    period = review.period()
+    review.tasks(a_task(uuid="a", description="Prepare PIR", due=at(30, 17)))
+    review.changes(
+        *[
+            due_moved("a", at=period.start, frm=at(n, 17), to=at(n + 10, 17))
+            for n in (0, 10, 20)
+        ]
+    )
+    adjustment = review.review().adjustment
+
+    assert "Prepare PIR" in adjustment
+    assert "running" not in adjustment
+
+
 def test_deadlines_are_unmeasured_without_any_history(review):
     review.tasks(a_task(uuid="a"))
     assert data(review, deadlines.KEY).measured is False

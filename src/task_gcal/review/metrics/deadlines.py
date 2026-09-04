@@ -140,6 +140,7 @@ def build(facts) -> Section:
                     # The strongest routine finding: a deadline moved three
                     # times is a decision nobody has made yet.
                     weight=4.0,
+                    already_true_for=_periods_already_true(timelines[uuid], facts),
                 )
             )
             break
@@ -212,6 +213,25 @@ def _ledger_entry(task, timeline) -> dict:
 
 def _iso(moment) -> str:
     return moment.isoformat().replace("+00:00", "Z") if moment else None
+
+
+# How far back to look for the same finding. Past this, "you have been told
+# this before" is the finding and the exact count stops mattering.
+_REPEAT_LOOKBACK = 12
+
+
+def _periods_already_true(timeline, facts) -> int:
+    """How many whole periods back this task already qualified.
+
+    Exact, because every push carries the instant it happened: the same test
+    is applied to the pushes that existed as of each earlier period's end.
+    """
+    for back in range(1, _REPEAT_LOOKBACK + 1):
+        cutoff = facts.period.shifted(-back).end
+        earlier = [c for c in timeline.pushes() if c.at < cutoff]
+        if len(earlier) < _REPEAT_OFFENDER:
+            return back - 1
+    return _REPEAT_LOOKBACK
 
 
 def _ordinal(n: int) -> str:
