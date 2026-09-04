@@ -11,6 +11,7 @@ a user-named UDA, and renaming it shouldn't split its history in two.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -49,8 +50,15 @@ TIMESTAMP_FIELDS = frozenset(
     {FIELD_DUE, FIELD_SCHEDULED, FIELD_WAIT, FIELD_ENTRY, FIELD_END}
 )
 
+# Fields whose values are free text you might not want on disk.
+TEXT_FIELDS = frozenset({FIELD_DESCRIPTION, FIELD_PROJECT})
+
 SOURCE_TASKCHAMPION = "taskchampion"
 SOURCE_JOURNAL = "journal"
+
+# Marks a value stored as a digest rather than as itself, so nobody reading
+# the file — or this code — mistakes one for a very short title.
+REDACTED_PREFIX = "sha256:"
 
 
 @dataclass(frozen=True)
@@ -76,8 +84,23 @@ class TaskChange:
         same id can name a different change. Keying on the change itself means
         a full re-harvest after a rebuild silently deduplicates instead of
         doubling every count.
+
+        Text fields are identified without their values, because those may be
+        stored redacted: turning `journal_detail` down and then re-harvesting
+        would otherwise store the same rename twice, once each way, and every
+        count of it would double.
         """
+        if self.field in TEXT_FIELDS:
+            return (self.uuid, self.field, self.at)
         return (self.uuid, self.field, self.at, self.old, self.new)
+
+    @property
+    def redacted(self) -> bool:
+        """True if this change's values are digests rather than the text."""
+        return any(
+            isinstance(v, str) and v.startswith(REDACTED_PREFIX)
+            for v in (self.old, self.new)
+        )
 
     def value_at(self, *, before: bool = False) -> Optional[datetime | int | str]:
         """The old or new value, interpreted according to the field."""
@@ -165,6 +188,18 @@ class Gap:
             prop=raw.get("property"),
             fingerprint=raw.get("fingerprint") or "",
         )
+
+
+def redact(value: Optional[str]) -> Optional[str]:
+    """A value replaced by a short digest of itself.
+
+    Enough to tell two titles apart and so to notice a rename; not enough to
+    read one. What `journal_detail = "minimal"` stores.
+    """
+    if value is None or value == "":
+        return value
+    digest = hashlib.sha256(value.encode()).hexdigest()[:12]
+    return f"{REDACTED_PREFIX}{digest}"
 
 
 def interpret(field: str, raw: Optional[str]):

@@ -72,7 +72,11 @@ class Timeline:
     """Everything the journal saw happen to one task."""
 
     uuid: str
+    # The last title we have a record of. May be a digest under
+    # `journal_detail = "minimal"`, so ask `Facts.label_for` for anything a
+    # person is going to read.
     label: str = ""
+    redacted: bool = False
     project: Optional[str] = None
     first_seen: Optional[datetime] = None
     last_seen: Optional[datetime] = None
@@ -183,6 +187,7 @@ def build_timelines(changes: Iterable[TaskChange]) -> dict[str, Timeline]:
             current = change.value_at()
             if isinstance(current, str):
                 timeline.label = current
+                timeline.redacted = change.redacted
         elif change.field == "project":
             project = change.value_at()
             if isinstance(project, str):

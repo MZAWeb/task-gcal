@@ -30,10 +30,17 @@ from . import store
 from .records import (
     PROPERTY_FIELDS,
     SOURCE_TASKCHAMPION,
+    TEXT_FIELDS,
     FIELD_ESTIMATE,
     Gap,
     TaskChange,
+    redact,
 )
+
+# `journal_detail` values, named here rather than imported from the journal so
+# the two stores don't depend on each other. See `Settings.journal_detail`.
+DETAIL_MINIMAL = "minimal"
+DETAIL_OFF = "off"
 
 # How the log related to what we'd already stored.
 CONTINUED = "continued"
@@ -78,6 +85,12 @@ def harvest(
     existing = history if history is not None else store.load()
     report = HarvestReport(earliest_known=existing.earliest)
 
+    if settings.journal_detail == DETAIL_OFF:
+        # "Off" means nothing is recorded. Harvesting anyway would put the task
+        # titles we were told not to keep into a different file.
+        report.reason = 'journal_detail = "off"'
+        return report
+
     try:
         state = _resume_point(existing, db_path=db_path)
     except tc.OperationsUnavailable as e:
@@ -100,6 +113,7 @@ def harvest(
     changes: list[TaskChange] = []
     gaps: list[Gap] = []
     estimate_property = settings.estimate_uda
+    minimal = settings.journal_detail == DETAIL_MINIMAL
 
     for op in operations:
         if not op.understood:
@@ -120,12 +134,15 @@ def harvest(
         field = _field_for(op.prop, estimate_property)
         if field is None:
             continue  # a real property no metric has asked for
+        old, new = op.old_value, op.value
+        if minimal and field in TEXT_FIELDS:
+            old, new = redact(old), redact(new)
         change = TaskChange(
             at=op.at,
             uuid=op.uuid,
             field=field,
-            old=op.old_value,
-            new=op.value,
+            old=old,
+            new=new,
             source=SOURCE_TASKCHAMPION,
             op_id=op.op_id,
             fingerprint=op.fingerprint,

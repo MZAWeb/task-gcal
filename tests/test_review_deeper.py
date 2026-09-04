@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from task_gcal import journal, reflections
+from task_gcal import reflections
 from task_gcal.config import Settings
 from task_gcal.review import triage
 from task_gcal.review.metrics import (
@@ -37,12 +37,15 @@ SETTINGS = Settings(timezone="UTC")
 FRIDAY = NOW + timedelta(days=4, hours=6)
 
 
-def snapshot(when, *tasks):
-    return journal.build_record(
-        settings=SETTINGS,
-        mode=journal.MODE_SNAPSHOT,
-        at=when,
-        observations=journal.observe_tasks(list(tasks), blocks={}, detail="full"),
+def redacted_title(uuid, *, at_when, digest):
+    """What a rename looks like under `journal_detail = "minimal"`."""
+    return a_field_change(
+        at=at_when,
+        uuid=uuid,
+        field="description",
+        old="sha256:000000000000",
+        new=f"sha256:{digest}",
+        op_id=99,
     )
 
 
@@ -55,6 +58,20 @@ def data(review, key):
 # ---------------------------------------------------------------------------
 # Deadlines / the promise ledger
 # ---------------------------------------------------------------------------
+
+def test_tasks_are_named_from_taskwarrior_rather_than_from_history(review):
+    # The change history may be storing digests instead of titles, so a report
+    # that took names from it would be a wall of hashes. Taskwarrior always
+    # has the current title, in the clear.
+    review.tasks(a_task(uuid="a", description="Prepare PIR", due=at(4, 17)))
+    review.changes(
+        due_moved("a", at=at(1, 9), frm=at(2, 17), to=at(4, 17)),
+        redacted_title("a", at_when=at(1, 10), digest="abcdef123456"),
+    )
+
+    detail = "\n".join(data(review, deadlines.KEY).detail)
+    assert "Prepare PIR" in detail
+    assert "sha256" not in detail
 
 def test_a_push_is_counted_and_measured_in_days(review):
     review.tasks(a_task(uuid="a", due=at(4, 17)))
@@ -145,9 +162,11 @@ def test_deadlines_are_unmeasured_without_any_history(review):
     assert data(review, deadlines.KEY).measured is False
 
 
-def test_no_change_history_says_how_to_get_some(review):
+def test_no_change_history_says_so_rather_than_reporting_nothing_moved(review):
     review.tasks(a_task(uuid="a", status="completed", due=at(4, 17), end=at(3, 16)))
-    assert "backfill" in "\n".join(data(review, deadlines.KEY).detail)
+    assert "No task-change history yet" in "\n".join(
+        data(review, deadlines.KEY).detail
+    )
 
 
 def test_a_task_with_no_journal_history_falls_back_to_its_current_date(review):

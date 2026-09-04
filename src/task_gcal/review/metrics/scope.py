@@ -72,7 +72,7 @@ def build(facts) -> Section:
     for uuid, first, last in ballooned[:5]:
         detail.append(
             f"  {humanize_minutes(first)} → {humanize_minutes(last)}  "
-            f"{timelines[uuid].label}"
+            f"{facts.label_for(uuid)}"
         )
 
     suggestions: tuple[Suggestion, ...] = ()
@@ -80,7 +80,7 @@ def build(facts) -> Section:
         uuid, first, last = ballooned[0]
         suggestions = (
             Suggestion(
-                f'"{timelines[uuid].label}" grew from '
+                f'"{facts.label_for(uuid)}" grew from '
                 f"{humanize_minutes(first)} to {humanize_minutes(last)} — "
                 "it's a project, so split it.",
                 weight=3.2,
@@ -106,7 +106,7 @@ def build(facts) -> Section:
             "doubled": [
                 {
                     "uuid": uuid,
-                    "label": timelines[uuid].label,
+                    "label": facts.label_for(uuid),
                     "from_minutes": first,
                     "to_minutes": last,
                 }

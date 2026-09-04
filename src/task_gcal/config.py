@@ -102,9 +102,12 @@ class Settings:
     # Taskwarrior UDA holding inline per-task overrides (see
     # `parse_task_overrides`).
     override_uda: str = "gcal"
-    # How much a journal record keeps: "full" stores task descriptions,
-    # "minimal" replaces each with a short hash (enough to tell tasks apart
-    # and to notice a retitle, not enough to read), "off" writes nothing.
+    # How much of what we record is kept in the clear. "full" stores task
+    # titles and projects as they are; "minimal" replaces each with a short
+    # digest — enough to tell two apart and to notice a rename, not enough to
+    # read; "off" records nothing at all, neither placements nor task changes.
+    # Applies to the change history as well as the run journal, because that is
+    # where titles live now. Changing it doesn't rewrite what's already stored.
     journal_detail: str = "full"
     # Email addresses to invite to created events. Empty by default and
     # only ever set per task (via the override UDA), never globally: you

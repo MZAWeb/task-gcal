@@ -99,7 +99,7 @@ def pick_keepers(events: list[CalEvent], now: datetime) -> dict[str, CalEvent]:
     """Each task's one canonical block among the events we own.
 
     Anything else we own for that task is a duplicate, which reconcile
-    removes and `snapshot` simply doesn't report.
+    removes.
     """
     keepers: dict[str, CalEvent] = {}
     for ev in events:

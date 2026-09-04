@@ -100,10 +100,9 @@ def build(facts) -> Section:
     if offenders:
         detail.append("Most-moved deadlines:")
         for uuid, changes in offenders[:_TOP_OFFENDERS]:
-            timeline = timelines[uuid]
             moved = sum(c.days for c in changes)
             detail.append(
-                f"  {len(changes)}x  +{moved:.0f}d  {timeline.label}"
+                f"  {len(changes)}x  +{moved:.0f}d  {facts.label_for(uuid)}"
             )
         if len(offenders) > _TOP_OFFENDERS:
             detail.append(f"  ... and {len(offenders) - _TOP_OFFENDERS} more")
@@ -118,7 +117,7 @@ def build(facts) -> Section:
         if total_pushes >= _REPEAT_OFFENDER:
             suggestions.append(
                 Suggestion(
-                    f'"{timelines[uuid].label}" was deferred for the '
+                    f'"{facts.label_for(uuid)}" was deferred for the '
                     f"{_ordinal(total_pushes)} time — decide whether it is "
                     "real.",
                     # The strongest routine finding: a deadline moved three

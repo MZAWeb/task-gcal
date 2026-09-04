@@ -83,6 +83,23 @@ class Facts:
     def by_uuid(self) -> dict[str, TaskInfo]:
         return {t.uuid: t for t in self.tasks}
 
+    def label_for(self, uuid: str) -> str:
+        """What to call a task in the report.
+
+        Taskwarrior is asked first, because it holds the *current* title and
+        holds it in the clear — the change history may be storing digests
+        instead (`journal_detail = "minimal"`), and a report full of hashes
+        would be useless. Falls back to a short uuid for a task that has been
+        purged, which is better than an empty line.
+        """
+        task = self.by_uuid().get(uuid)
+        if task is not None and task.description:
+            return task.description
+        timeline = self.timelines.get(uuid)
+        if timeline is not None and timeline.label and not timeline.redacted:
+            return timeline.label
+        return uuid[:8]
+
     def completed_in_period(self) -> list[TaskInfo]:
         return [
             t
@@ -157,8 +174,8 @@ class Facts:
         earliest = self.changes.earliest
         if earliest is None:
             return (
-                "No task-change history yet. `task-gcal backfill` imports what "
-                "Taskwarrior still remembers."
+                "No task-change history yet — it is harvested from "
+                "Taskwarrior on every run, so the next one will start it."
             )
         if earliest > self.period.start:
             return (

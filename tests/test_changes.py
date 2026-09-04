@@ -8,6 +8,7 @@ database must not silently reuse ids into the wrong changes.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
@@ -349,6 +350,77 @@ def test_a_newer_minor_schema_is_harvested_but_flagged(tmp_path, isolated_journa
 
     assert report.changes_added == 1
     assert report.schema_untested
+
+
+# ---------------------------------------------------------------------------
+# How much detail is kept
+# ---------------------------------------------------------------------------
+
+MINIMAL = replace(SETTINGS, journal_detail="minimal")
+
+
+def test_minimal_detail_keeps_a_digest_instead_of_the_title(
+    tmp_path, isolated_journal
+):
+    report = harvest(
+        tmp_path,
+        [tc_update(prop="description", old="water the plants", new="water them")],
+        settings=MINIMAL,
+    )
+
+    (stored,) = store.load().changes
+    assert report.changes_added == 1
+    assert "water" not in store.path().read_text()
+    assert stored.redacted
+    # Still a rename: the two sides differ, which is all the metric asks.
+    assert stored.old != stored.new
+
+
+def test_minimal_detail_still_keeps_dates_and_estimates(tmp_path, isolated_journal):
+    # There is nothing private about a deadline moving, and hashing it would
+    # make the number unusable.
+    harvest(tmp_path, [tc_update(prop="due", new="1788732000")], settings=MINIMAL)
+
+    (stored,) = store.load().changes
+    assert stored.new == "1788732000"
+    assert not stored.redacted
+
+
+def test_the_same_title_hashes_the_same_way(tmp_path, isolated_journal):
+    assert records.redact("a title") == records.redact("a title")
+    assert records.redact("a title") != records.redact("another title")
+
+
+def test_a_redacted_change_is_the_same_change_as_the_readable_one(
+    tmp_path, isolated_journal
+):
+    # Turning the dial down and then re-harvesting — which a rebuilt
+    # Taskwarrior database forces — must not store one rename twice, once
+    # readable and once hashed, and double every count of it.
+    rename = tc_update(prop="description", old="before", new="after")
+    harvest(tmp_path / "first", [rename])
+
+    # The same rename, but with an earlier operation in front of it: ids no
+    # longer mean what we stored, which is what "rebuilt" looks like.
+    rebuilt = db(tmp_path / "second", [tc_update(prop="due", new="1788732000"), rename])
+    again = changes.harvest(MINIMAL, db_path=rebuilt)
+
+    assert again.outcome == changes.REBUILT
+    stored = store.load().changes
+    assert [c.field for c in stored] == ["description", "due"]
+
+
+def test_detail_off_harvests_nothing(tmp_path, isolated_journal):
+    report = harvest(
+        tmp_path,
+        [tc_update(prop="description", new="water the plants")],
+        settings=replace(SETTINGS, journal_detail="off"),
+    )
+
+    assert report.changes_added == 0
+    assert report.outcome == changes.UNAVAILABLE
+    assert "off" in report.reason
+    assert store.load().changes == []
 
 
 def test_a_configured_sync_server_ends_the_promise_of_exactness(

@@ -341,14 +341,20 @@ Three rules keep both stores honest:
 - **A dry run records nothing.** Its placements were never made.
 
 Everything is mode 0600 in a 0700 directory and nothing leaves your machine,
-but task titles and deadlines are sensitive, so there's a dial for the run
-journal:
+but task titles are sensitive, so there's a dial. It covers everything we
+record, titles included — which today means the change history, since the run
+journal holds no titles at all:
 
 ```toml
 journal_detail = "full"      # default
-journal_detail = "minimal"   # store a digest instead of descriptions
+journal_detail = "minimal"   # store a digest of each title instead of the title
 journal_detail = "off"       # record nothing at all
 ```
+
+`minimal` keeps every date, estimate and status as it is — there's nothing
+private about a deadline moving, and hashing it would make the number
+useless. Only free text is digested, which is still enough to see *that* a
+task was renamed. Changing the dial doesn't rewrite what's already stored.
 
 Your check-in answers live separately again, in `reflections.jsonl` —
 machine observations and your own words have different lifecycles, and
