@@ -26,6 +26,23 @@ from .config import (
 )
 
 
+# Private property names for the expectation stamp. Private properties are
+# invisible to anyone we invite, and Google merges them on patch — but we
+# re-send `scheduler` with every stamp anyway, because a merge that turned out
+# to be a replace would make our own events unfindable.
+EXPECTED_START = "expectedStart"
+EXPECTED_END = "expectedEnd"
+EXPECTED_SUMMARY = "expectedSummary"
+PLACED_BY = "placedBy"
+
+# Who chose where a block sits. A position we chose is ours to reconsider; one
+# a human chose is theirs, and later runs leave it alone until it becomes
+# impossible. Recorded on the event for the same reason as the times: the next
+# run has to be able to tell the two apart without reading any history.
+BY_SCHEDULER = "scheduler"
+BY_HUMAN = "human"
+
+
 @dataclass(frozen=True)
 class Expectation:
     """What we last left an event looking like.
@@ -41,11 +58,16 @@ class Expectation:
     # None for a stamp written before summaries were included, which reads as
     # "we don't know what we called it" rather than "it was renamed".
     summary: Optional[str] = None
+    placed_by: str = BY_SCHEDULER
 
     def as_private(self) -> dict[str, str]:
         out = {
             EXPECTED_START: self.start.astimezone(timezone.utc).isoformat(),
             EXPECTED_END: self.end.astimezone(timezone.utc).isoformat(),
+            # Written as a value rather than by deleting the key when it's
+            # ours: clearing a property means sending a null, and we'd rather
+            # not depend on how the API treats that.
+            PLACED_BY: self.placed_by,
         }
         if self.summary is not None:
             out[EXPECTED_SUMMARY] = self.summary
@@ -79,7 +101,16 @@ class CalEvent:
             start=start,
             end=end,
             summary=summary if isinstance(summary, str) else None,
+            placed_by=(
+                BY_HUMAN if priv.get(PLACED_BY) == BY_HUMAN else BY_SCHEDULER
+            ),
         )
+
+    @property
+    def placed_by(self) -> str:
+        """Who chose this block's position, as far as the event knows."""
+        expectation = self.expectation
+        return expectation.placed_by if expectation else BY_SCHEDULER
 
 
 # Field masks: keep responses small and avoid downloading attendee
@@ -94,15 +125,6 @@ _OUR_FIELDS = (
     "items(id,summary,description,colorId,visibility,start,end,"
     "attendees,extendedProperties)"
 )
-
-# Private property names for the expectation stamp. Private properties are
-# invisible to anyone we invite, and Google merges them on patch — but we
-# re-send `scheduler` with every stamp anyway, because a merge that turned out
-# to be a replace would make our own events unfindable.
-EXPECTED_START = "expectedStart"
-EXPECTED_END = "expectedEnd"
-EXPECTED_SUMMARY = "expectedSummary"
-
 
 def _write_secure(path, content: str) -> None:
     """Write `content` to `path` with mode 0600 (private)."""
@@ -418,8 +440,8 @@ class GCal:
                 return False
             raise
 
-    def adopt_position(self, event: CalEvent, *, summary: str) -> bool:
-        """Re-stamp our expectation to where the event now is.
+    def adopt(self, event: CalEvent, expect: Expectation) -> bool:
+        """Accept an event as it stands: re-stamp it, change nothing else.
 
         Called after we notice someone moved a block and decide to let it
         stay. The stamp is what makes drift a one-off observation rather than
@@ -427,11 +449,7 @@ class GCal:
         again on every run for as long as the block existed.
         """
         return self.patch_event(
-            event.id,
-            expect=Expectation(
-                start=event.start, end=event.end, summary=summary
-            ),
-            task_uuid=event.task_uuid,
+            event.id, expect=expect, task_uuid=event.task_uuid
         )
 
     def delete_event(self, event_id: str) -> bool:

@@ -9,13 +9,15 @@ that direction matters.
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Optional
 
 from googleapiclient.errors import HttpError
 
 from .config import Settings
-from .gcal import CalEvent, Expectation, GCal
+from .drift import Drift, detect as detect_drift
+from .gcal import BY_SCHEDULER, CalEvent, Expectation, GCal
 from .changes import harvest as harvest_changes
 from .guard import removal_guard_error
 from .intervals import same_instant
@@ -85,6 +87,7 @@ def _apply_decision(
     def _create() -> Optional[str]:
         if dry_run:
             return None
+        # A create always stamps, so anything it returns needs no adopting.
         return gcal.create_event(
             task_uuid=t.uuid,
             summary=summary,
@@ -102,6 +105,7 @@ def _apply_decision(
         # finished ones stay put as a record.
         event_id = _create()
         action = "create"
+        restamped = True
     else:
         event_id = keeper.id
         need_summary = keeper.summary != summary
@@ -118,6 +122,7 @@ def _apply_decision(
         existing_emails = {(a.get("email") or "").lower() for a in existing_atts}
         new_atts = [e for e in ts.attendees if e.lower() not in existing_emails]
         need_attendees = bool(new_atts)
+        restamped = need_time or need_summary
         if (
             need_summary
             or need_time
@@ -148,9 +153,17 @@ def _apply_decision(
                     # every run.
                     expect=(
                         Expectation(
-                            start=d.start_utc, end=d.end_utc, summary=summary
+                            start=d.start_utc,
+                            end=d.end_utc,
+                            summary=summary,
+                            # Writing a time makes the position ours again.
+                            # Writing only the title mustn't quietly unpin a
+                            # block somebody moved.
+                            placed_by=(
+                                BY_SCHEDULER if need_time else keeper.placed_by
+                            ),
                         )
-                        if need_time or need_summary
+                        if restamped
                         else None
                     ),
                     task_uuid=t.uuid,
@@ -159,6 +172,7 @@ def _apply_decision(
                     # Event vanished between list and patch; recreate.
                     event_id = _create()
                     action = "create"
+                    restamped = True
         else:
             action = "unchanged"
 
@@ -170,7 +184,53 @@ def _apply_decision(
         past_due=d.past_due,
         moved_reason=d.moved_reason,
         event_id=event_id,
+        restamped=restamped,
     )
+
+
+def _placement_log(
+    *,
+    decisions: list[Decision],
+    placed: list[Placement],
+    drifted: list[Drift],
+) -> tuple[PlacementObservation, ...]:
+    """What this run saw, one entry per event, keyed on the event id.
+
+    Two things are folded together here: what we did (created, patched, left
+    alone) and what we found already changed. They belong on the same entry
+    because they're about the same block — and a block that drifted but got no
+    placement this run still needs recording, or a hand-move to a task that
+    has since left the report would vanish.
+    """
+    log: dict[str, PlacementObservation] = {}
+    for d, p in zip(decisions, placed):
+        # No id means the write failed; there is no block to record.
+        if not p.event_id:
+            continue
+        log[p.event_id] = PlacementObservation(
+            task_uuid=d.task.uuid,
+            event_id=p.event_id,
+            start=d.start_utc,
+            end=d.end_utc,
+            action=p.action,
+            moved_reason=d.moved_reason,
+        )
+    for drift in drifted:
+        existing = log.get(drift.event.id)
+        if existing is not None:
+            log[drift.event.id] = replace(
+                existing, drift=drift.kinds, drifted_from=drift.expected_start
+            )
+        elif drift.event.task_uuid:
+            log[drift.event.id] = PlacementObservation(
+                task_uuid=drift.event.task_uuid,
+                event_id=drift.event.id,
+                start=drift.event.start,
+                end=drift.event.end,
+                drift=drift.kinds,
+                drifted_from=drift.expected_start,
+            )
+    return tuple(log.values())
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +273,12 @@ def reconcile(
     )
 
     keepers = pick_keepers(existing, now)
+
+    # Read before we write. Each event carries a stamp of where we last left
+    # it, so this says which blocks changed under us without consulting any
+    # history — and it has to happen before we touch anything, or we'd be
+    # comparing our own edits against themselves.
+    drifted = detect_drift(existing, now=now)
 
     # Everything we could still remove. Also the denominator for the
     # bulk-removal guard: finished events are history and never touched.
@@ -373,6 +439,30 @@ def reconcile(
         cleanup_prog.close()
         active_progress = None
 
+    # ---------------- Step 6: adopt what we didn't rewrite ---------------
+    # A drifted block we left alone still has our old stamp on it, and would
+    # report the same hand-move on every run from here to the end of time.
+    # Re-stamping it where it now sits is what makes drift a one-off
+    # observation — and it's also the honest record: that is where the block
+    # is, and we've accepted it.
+    if not dry_run:
+        rewritten = {p.event_id for p in placed if p.restamped}
+        gone = (
+            set()
+            if guard_error
+            else {ev.id for ev, _bucket, _tag in planned_removals}
+        )
+        for drift in drifted:
+            if drift.event.id in rewritten or drift.event.id in gone:
+                continue
+            try:
+                gcal.adopt(drift.event, drift.adopted())
+            except HttpError as e:
+                # Bookkeeping, not the job. The calendar is already right; the
+                # only cost of failing here is that the next run notices the
+                # same move again.
+                print(f"  ! could not record a change: {e}", file=sys.stderr)
+
     # A dry run deliberately writes no journal record. Its placements were
     # never made, so keeping them would put moves that never happened into
     # placement churn.
@@ -381,18 +471,8 @@ def reconcile(
             settings=settings,
             mode=MODE_SCHEDULE,
             at=now,
-            placements=tuple(
-                PlacementObservation(
-                    task_uuid=d.task.uuid,
-                    event_id=p.event_id,
-                    start=d.start_utc,
-                    end=d.end_utc,
-                    action=p.action,
-                    moved_reason=d.moved_reason,
-                )
-                for d, p in zip(decisions, placed)
-                # No id means the write failed; there is no block to record.
-                if p.event_id
+            placements=_placement_log(
+                decisions=decisions, placed=placed, drifted=drifted
             ),
         )
 
@@ -405,6 +485,7 @@ def reconcile(
         removed_duplicates=removed_duplicates,
         removed_stale=removed_stale,
         withheld=withheld,
+        drifted=drifted,
         guard_error=guard_error,
         dry_run=dry_run,
         tz=tz,

@@ -49,6 +49,7 @@ def print_report(
     removed_duplicates,
     removed_stale,
     withheld,
+    drifted,
     guard_error,
     dry_run: bool,
     tz: tzinfo,
@@ -74,6 +75,13 @@ def print_report(
                 f"{_est(p.task)}  {p.task.ref} {p.task.description}"
                 f"{_override_flag(p.task)}{_moved_flag(p)}"
             )
+        print()
+
+    if drifted:
+        print(f"Changed outside task-gcal ({len(drifted)}):")
+        print("  (noticed once — not reported again)")
+        for d in drifted:
+            print(f"  ~ {d.describe(tz)}")
         print()
 
     if removed_orphans:
@@ -131,6 +139,7 @@ def print_report(
         or no_due
         or unschedulable
         or withheld
+        or drifted
     ):
         print("Nothing to do.")
 

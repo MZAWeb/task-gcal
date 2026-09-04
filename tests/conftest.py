@@ -193,7 +193,7 @@ def hand_moved(
 def unstamped(event: CalEvent) -> CalEvent:
     """An event written before we started stamping expectations on them."""
     private = dict(event.raw["extendedProperties"]["private"])
-    for key in ("expectedStart", "expectedEnd", "expectedSummary"):
+    for key in ("expectedStart", "expectedEnd", "expectedSummary", "placedBy"):
         private.pop(key, None)
     event.raw["extendedProperties"]["private"] = private
     return event
@@ -331,13 +331,9 @@ class FakeGCal:
                 ev.raw["extendedProperties"]["private"].update(expect.as_private())
         return True
 
-    def adopt_position(self, event, *, summary) -> bool:
+    def adopt(self, event, expect) -> bool:
         return self.patch_event(
-            event.id,
-            expect=Expectation(
-                start=event.start, end=event.end, summary=summary
-            ),
-            task_uuid=event.task_uuid,
+            event.id, expect=expect, task_uuid=event.task_uuid
         )
 
     def delete_event(self, event_id) -> bool:

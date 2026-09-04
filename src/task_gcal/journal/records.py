@@ -102,6 +102,12 @@ def _dt(raw: Any) -> Optional[datetime]:
         return None
 
 
+def _strings(raw: Any) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        return ()
+    return tuple(item for item in raw if isinstance(item, str))
+
+
 def _int(raw: Any) -> Optional[int]:
     return raw if isinstance(raw, int) and not isinstance(raw, bool) else None
 
@@ -128,6 +134,14 @@ class PlacementObservation:
     action: Optional[str] = None
     # Why a settled placement had to be given up, when it was.
     moved_reason: Optional[str] = None
+    # What had changed under us before this run touched anything: `moved`,
+    # `retitled`, or both. Recorded once, when it's noticed — the run adopts
+    # the new position, so a hand-move isn't re-reported for the rest of the
+    # block's life.
+    drift: tuple[str, ...] = ()
+    # Where we had left it, when drift was noticed. With `start` that's the
+    # whole move, so a review never needs the previous record to measure it.
+    drifted_from: Optional[datetime] = None
 
     def to_dict(self) -> dict:
         out: dict[str, Any] = {
@@ -142,6 +156,10 @@ class PlacementObservation:
         ):
             if value:
                 out[key] = value
+        if self.drift:
+            out["drift"] = list(self.drift)
+        if self.drifted_from is not None:
+            out["drifted_from"] = _iso(self.drifted_from)
         return out
 
     @classmethod
@@ -159,6 +177,8 @@ class PlacementObservation:
             end=end,
             action=raw.get("action"),
             moved_reason=raw.get("moved_reason"),
+            drift=_strings(raw.get("drift")),
+            drifted_from=_dt(raw.get("drifted_from")),
         )
 
 

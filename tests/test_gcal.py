@@ -13,7 +13,7 @@ from googleapiclient.errors import HttpError
 
 from task_gcal import gcal as gcal_mod
 from task_gcal.config import SCHEDULER_TAG, Settings
-from task_gcal.gcal import CalEvent, Expectation, GCal
+from task_gcal.gcal import BY_HUMAN, CalEvent, Expectation, GCal
 
 UTC = timezone.utc
 
@@ -212,7 +212,7 @@ def test_a_stamp_from_before_summaries_still_gives_the_times():
 def test_restamping_keeps_the_tags_that_make_the_event_ours(client):
     # If Google ever replaced the private map instead of merging it, dropping
     # these would make our own events invisible to us.
-    client.adopt_position(an_event(), summary="write it up")
+    client.adopt(an_event(), Expectation(start=dt(9), end=dt(10)))
     private = client.events.patch_kwargs[0]["body"]["extendedProperties"][
         "private"
     ]
@@ -222,13 +222,35 @@ def test_restamping_keeps_the_tags_that_make_the_event_ours(client):
 
 def test_adopting_a_position_stamps_where_the_event_now_is(client):
     moved = an_event(start=dt(14), end=dt(15))
-    assert client.adopt_position(moved, summary="write it up") is True
+    expect = Expectation(
+        start=moved.start, end=moved.end, summary=moved.summary,
+        placed_by=BY_HUMAN,
+    )
+    assert client.adopt(moved, expect) is True
     body = client.events.patch_kwargs[0]["body"]
     private = body["extendedProperties"]["private"]
     assert private["expectedStart"] == "2026-09-07T14:00:00+00:00"
     assert private["expectedEnd"] == "2026-09-07T15:00:00+00:00"
+    assert private["placedBy"] == "human"
     # Adoption means leaving the event alone; only the stamp moves.
     assert "start" not in body and "end" not in body
+
+
+def test_a_position_we_chose_says_so(client):
+    client.create_event(
+        task_uuid="u1", summary="s", description="d", start=dt(9), end=dt(10),
+        color_id="9",
+    )
+    private = client.events.insert_kwargs[0]["body"]["extendedProperties"][
+        "private"
+    ]
+    assert private["placedBy"] == "scheduler"
+
+
+def test_an_event_with_no_stamp_counts_as_ours(client):
+    # Anything else would treat every event written by an older version as
+    # pinned, and the scheduler would stop being able to move them.
+    assert an_event(private={"taskUuid": "u1"}).placed_by == "scheduler"
 
 
 def an_event(*, start=None, end=None, summary="write it up", private=None):

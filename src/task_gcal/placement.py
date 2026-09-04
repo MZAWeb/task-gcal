@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Optional
 
 from .config import Settings, apply_overrides, parse_task_overrides
+from .drift import is_pinned
 from .gcal import CalEvent
 from .scheduler import find_earliest_slot
 from .stability import invalid_reason, is_settled
@@ -37,6 +38,11 @@ class Placement:
     # reads as a new block instead of the old one having moved. None on a dry
     # run, which creates nothing.
     event_id: Optional[str] = None
+    # Whether this run wrote a fresh expectation stamp on the event. Not the
+    # same as "we patched it": a patch that only fixes the description leaves
+    # the stamp alone, and a drifted block like that still has to be adopted
+    # or we'd report the same hand-move on every run from now on.
+    restamped: bool = False
 
 
 @dataclass
@@ -306,6 +312,15 @@ def _is_sticky_candidate(
     if keeper is None or keeper.end <= now:
         return False
     if keeper.start <= now < keeper.end:
+        return True
+    if is_pinned(keeper):
+        # Somebody dragged this block somewhere. Where they put it beats where
+        # we would have put it, settled or not — being able to move your own
+        # calendar is the point, and a block that springs back tomorrow is
+        # worse than one that never moved. It still goes through
+        # `invalid_reason` below, so a position that can't work (a meeting on
+        # top of it, past the deadline) yields, with a reason — and when we
+        # move it, it becomes ours again.
         return True
     return is_settled(keeper.start, now, settings.settle_days)
 
