@@ -783,9 +783,41 @@ def test_the_report_never_says_one_tasks(populated):
     # `N task(s)` is what a metric writes when it can't know its own count.
     # A renderer does know, and "1 tasks" is how a page tells you nobody looked.
     out = populated.render("html", detailed=True)
-    assert "(s)" not in out
-    assert "(es)" not in out
+    # No count-and-word pair anywhere still carries its unresolved suffix.
+    assert not re.search(r"\d+(?: [A-Za-z][A-Za-z-]*){0,2} [A-Za-z][\w'-]*\((?:s|es)\)", out)
     assert not re.search(r"\b1 [a-z]+s\b", strip_tags(out).replace("1 seconds", ""))
+
+
+def test_a_task_whose_own_name_contains_a_suffix_keeps_it(review):
+    # A real task in the owner's list is called "H2 Guidance - Daniel(s)". A
+    # depluralizer that took the nearest number anywhere to the left would
+    # rewrite it to "Daniels" -- and a report that quietly edits the name of
+    # your task has done something much worse than print "1 tasks", because now
+    # every other number on the page is a question.
+    from conftest import due_moved
+
+    review.tasks(
+        a_task(uuid="a", id=61, description="H2 Guidance - Daniel(s)", due=at(4, 9)),
+        a_task(uuid="b", id=62, description="Review the API(s)", due=at(4, 9)),
+    )
+    review.changes(
+        due_moved("a", at(0, 12), at(0, 9), at(4, 9)),
+        due_moved("b", at(1, 12), at(1, 9), at(4, 9)),
+    )
+    out = review.render("html", sections=("dates",), detailed=True)
+    assert "H2 Guidance - Daniel(s)" in out
+    assert "Daniels" not in out
+    assert "Review the API(s)" in out
+    assert "APIs" not in out
+
+
+def test_the_appendix_shows_no_python_through_its_values(populated):
+    # `comparable_from` is None on a real report. Printing the literal `None` in
+    # a table on a page whose central rule is that missing data is never a zero
+    # is the same mistake wearing a different hat.
+    out = populated.render("html", detailed=True)
+    assert ">None<" not in out
+    assert ">True<" not in out and ">False<" not in out
 
 
 def strip_tags(html: str) -> str:

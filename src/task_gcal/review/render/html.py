@@ -625,8 +625,11 @@ _CHARTED_GROUPS = {
     churn_metric.KEY: ("why",),
 }
 
-_PLURAL = re.compile(r"([A-Za-z][\w'-]*)\((s|es)\)")
-_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+_PLURAL = re.compile(
+    r"(?P<count>\d+(?:\.\d+)?)"
+    r"(?P<mid>(?: [A-Za-z][A-Za-z-]*){0,2}? )"
+    r"(?P<word>[A-Za-z][\w'-]*)\((?P<suffix>s|es)\)"
+)
 _CODE = re.compile(r"`([^`]+)`")
 
 # Cell separator while a detail line is being taken apart. A control character
@@ -1450,7 +1453,7 @@ def _flatten(measure: str, value) -> list[tuple[str, str]]:
     repr in a cell that's meant to be the readable way to reach a value.
     """
     if isinstance(value, dict):
-        return [(f"{measure}.{key}", str(item)) for key, item in value.items()]
+        return [(f"{measure}.{key}", _as_text(item)) for key, item in value.items()]
     if isinstance(value, (list, tuple)):
         out: list[tuple[str, str]] = []
         for index, item in enumerate(value):
@@ -1459,14 +1462,29 @@ def _flatten(measure: str, value) -> list[tuple[str, str]]:
                 # record, so the rows read as "ledger[Prepare PIR].pushes".
                 name = item.get("label") or item.get("ref") or index
                 out.extend(
-                    (f"{measure}[{name}].{key}", str(sub))
+                    (f"{measure}[{name}].{key}", _as_text(sub))
                     for key, sub in item.items()
                     if key not in ("label", "uuid")
                 )
             else:
-                out.append((f"{measure}[{index}]", str(item)))
+                out.append((f"{measure}[{index}]", _as_text(item)))
         return out
-    return [(measure, str(value))]
+    return [(measure, _as_text(value))]
+
+
+def _as_text(value) -> str:
+    """One value as a reader should see it, with no Python showing through.
+
+    `None` is the one that matters. It means the value isn't known, and printing
+    the literal `None` in a table on a page whose central rule is that missing
+    data is never a zero would be the same mistake in a different costume — an
+    em dash says "nothing here" without naming a language.
+    """
+    if value is None:
+        return "—"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return str(value)
 
 
 def _glossary(sections: tuple[Section, ...]) -> str:
@@ -1539,14 +1557,21 @@ def _depluralize(text: str) -> str:
     The metrics write `(s)` because a metric can't know its own count is one
     without saying it twice. A renderer does know, and "1 tasks" on a page
     someone is meant to trust is the kind of detail that says nobody was
-    looking. Resolved against the nearest number to the left, which is where
-    the count always is.
+    looking.
+
+    The count has to be *next to* the word -- at most two plain words before it
+    -- and that narrowness is the whole point. A task really called
+    "H2 Guidance - Daniel(s)" turns up in a most-moved list, and a looser rule
+    that took the nearest number anywhere to its left would rewrite it to
+    "Daniels". A report that quietly edits the name of your task has done
+    something far worse than print "1 tasks": every other number on the page is
+    now a question. So a `(s)` with no count beside it is left exactly as its
+    owner typed it.
     """
+
     def fix(match: re.Match) -> str:
-        word, suffix = match.group(1), match.group(2)
-        numbers = _NUMBER.findall(text[: match.start()])
-        if numbers and float(numbers[-1]) == 1:
-            return word
-        return word + suffix
+        count, mid, word = match.group("count", "mid", "word")
+        plural = float(count) != 1
+        return f"{count}{mid}{word}{match.group('suffix') if plural else ''}"
 
     return _PLURAL.sub(fix, text)
