@@ -11,6 +11,12 @@ from ..stagnation import find
 
 KEY = "stagnation"
 
+# What this section means, in plain language, for a report's glossary.
+MEANS = (
+    "Tasks that keep getting carried forward without moving. These need a "
+    "decision from you rather than another block of time."
+)
+
 _TOP = 5
 
 

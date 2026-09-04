@@ -277,7 +277,8 @@ charts, notebooks, or anything else, without any of that becoming the
 scheduler's problem), and `html`. The HTML report is a single
 self-contained file with inline SVG charts, light and dark, no
 JavaScript, and no network access at all — your task titles never leave
-the machine.
+the machine. It closes with a plain-language definition of every section
+it showed, so the first one you open needs nothing else to read it.
 
 Bare `task-gcal` is unaffected by any of this: none of the review code is
 even imported unless you run `review`.

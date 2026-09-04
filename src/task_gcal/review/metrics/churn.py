@@ -23,6 +23,12 @@ from ..placements import BY_HUMAN, build_blocks
 
 KEY = "churn"
 
+# What this section means, in plain language, for a report's glossary.
+MEANS = (
+    "How much the calendar got reshuffled: how often blocks moved, and "
+    "whether it was the scheduler or you doing the moving."
+)
+
 # How many times one block has to move before it's worth naming.
 _RESTLESS = 3
 

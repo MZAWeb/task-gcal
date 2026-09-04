@@ -26,6 +26,13 @@ from ..model import Coverage, Section, Suggestion
 
 KEY = "deadlines"
 
+# What this section means, in plain language, for a report's glossary.
+MEANS = (
+    "Which due dates you moved, how far you moved them, and whether the "
+    "work landed by the date in the end. Moving a date is not automatically "
+    "bad — it is worth seeing how often you do it."
+)
+
 # A task pushed this many times has stopped being a deadline and become a
 # habit; it earns the review's closing line.
 _REPEAT_OFFENDER = 3

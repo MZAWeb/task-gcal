@@ -25,6 +25,7 @@ from html import escape
 
 from ...intervals import humanize_minutes
 from ..metrics import capacity as capacity_metric
+from ..metrics import glossary
 from ..metrics import throughput as throughput_metric
 from ..metrics import trends as trends_metric
 from ..model import Review, Section
@@ -146,6 +147,10 @@ table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
 th, td { text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--grid); }
 td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .unmeasured { color: var(--text-muted); font-style: italic; }
+.glossary { margin-top: 3rem; }
+.glossary .rows { grid-template-columns: 9rem 1fr; row-gap: 0.7rem; }
+.glossary dd { color: var(--text-secondary); }
+.glossary p { color: var(--text-muted); font-size: 0.85rem; margin: 1.25rem 0 0; }
 """
 
 
@@ -190,8 +195,39 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
             parts.append(f"<li>{escape(caveat)}</li>")
         parts.append("</ul>")
 
+    parts.extend(_glossary(sections))
+
     parts.append("</main></body></html>")
     return "\n".join(parts) + "\n"
+
+
+def _glossary(sections: tuple[Section, ...]) -> list[str]:
+    """Plain-language definitions, at the foot of the report.
+
+    At the bottom because it's reference material, not the report — but present
+    every time, because "Scope" and "Stagnation" are labels a first-time reader
+    has no way to guess, and a metric nobody understands is a metric nobody
+    acts on. Only the sections actually in this report are defined; a glossary
+    of things that aren't on the page is noise.
+    """
+    meanings = glossary()
+    defined = [(s.label, meanings[s.key]) for s in sections if s.key in meanings]
+    if not defined:
+        return []
+    out = [
+        '<section class="glossary"><h2>What these mean</h2>',
+        '<div class="card"><dl class="rows">',
+    ]
+    for label, means in defined:
+        out.append(f"<dt>{escape(label)}</dt><dd>{escape(means)}</dd>")
+    out.append("</dl>")
+    out.append(
+        "<p>Anything shown in grey wasn't measured for this period. That "
+        "means it isn't known, not that it was zero — see Coverage above "
+        "for what was missing.</p>"
+    )
+    out.append("</div></section>")
+    return out
 
 
 def _charts(review: Review, sections: tuple[Section, ...]) -> list[str]:

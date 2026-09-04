@@ -22,6 +22,12 @@ from ..model import Coverage, Section, Suggestion
 
 KEY = "attempts"
 
+# What this section means, in plain language, for a report's glossary.
+MEANS = (
+    "How many separate sittings a finished task actually took. Two blocks "
+    "for a task you called an hour means it was really two hours."
+)
+
 # Below this many completed tasks the average is a rumour, not a finding.
 _MIN_SAMPLE = 4
 

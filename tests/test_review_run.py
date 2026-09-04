@@ -332,6 +332,34 @@ def test_all_shows_every_section(runner):
     assert keys == set(section_keys())
 
 
+def test_every_section_has_a_plain_language_definition():
+    # The registry carries the definition next to the builder so a new metric
+    # can't ship without one. A section nobody can define is a section nobody
+    # can act on.
+    from task_gcal.review import section_keys
+    from task_gcal.review.metrics import glossary
+
+    meanings = glossary()
+    assert set(meanings) == set(section_keys())
+    for key, text in meanings.items():
+        assert text.strip(), key
+        assert text.strip()[-1] in ".?", key
+
+
+def test_no_definition_explains_itself_in_our_own_vocabulary():
+    # These are the words a first-time reader has no reason to know. If a
+    # definition needs one, it isn't a definition yet.
+    from task_gcal.review.metrics import glossary
+
+    jargon = (
+        "denominator", "coverage", "uda", "uuid", "journal", "harvest",
+        "taskchampion", "metric", "section", "settle", "drift",
+    )
+    for key, text in glossary().items():
+        lowered = text.lower()
+        assert not [word for word in jargon if word in lowered], key
+
+
 def test_all_shows_every_section_in_full(runner):
     # Thirteen summary lines you then have to re-run one at a time, each with a
     # name you had to remember, is worse than either the summary or the detail.

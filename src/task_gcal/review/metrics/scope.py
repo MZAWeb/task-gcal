@@ -13,6 +13,13 @@ from ..model import Coverage, Section, Suggestion
 
 KEY = "scope"
 
+# What this section means, in plain language, for a report's glossary.
+MEANS = (
+    "Tasks that quietly turned into bigger tasks: the estimate revised up, "
+    "the title rewritten, the start date pushed out. Usually a sign it was "
+    "never one task."
+)
+
 # An estimate that has grown this much was not an estimate.
 _BALLOONED = 2.0
 

@@ -17,6 +17,8 @@ import pytest
 
 from task_gcal.review.render import FORMATS, render
 
+from html import escape
+
 from conftest import a_block, a_task, at
 
 
@@ -324,6 +326,37 @@ def test_the_table_never_shows_a_python_repr(populated):
 def test_a_nested_dict_is_still_flattened(populated):
     out = populated.render("html", sections=("throughput",))
     assert "by_project.fraud" in out
+
+
+def test_html_explains_every_section_it_shows(populated):
+    # "Scope" and "Stagnation" are labels a first-time reader cannot guess, and
+    # a metric nobody understands is a metric nobody acts on.
+    from task_gcal.review.metrics import glossary
+
+    out = populated.render("html")
+    assert "What these mean" in out
+    for section in populated.review().sections:
+        if section.label in out:
+            assert escape(glossary()[section.key]) in out
+
+
+def test_the_glossary_does_not_define_sections_that_are_not_shown(populated):
+    from task_gcal.review.metrics import glossary
+
+    out = populated.render("html", sections=("capacity",))
+    assert escape(glossary()["capacity"]) in out
+    assert escape(glossary()["stagnation"]) not in out
+
+
+def test_the_glossary_comes_after_the_report(populated):
+    out = populated.render("html")
+    assert out.index("What these mean") > out.index("All values")
+
+
+def test_the_glossary_says_grey_means_unknown_not_zero(populated):
+    # The one thing a reader has to know to not misread the page.
+    out = populated.render("html")
+    assert "not that it was zero" in out
 
 
 def test_html_escapes_a_task_title(review):

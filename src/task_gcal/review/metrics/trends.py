@@ -28,6 +28,12 @@ from ..periods import KIND_MONTH, week_of
 
 KEY = "trends"
 
+# What this section means, in plain language, for a report's glossary.
+MEANS = (
+    "A few of the same numbers over the last twelve weeks, so you can see "
+    "which way things are going rather than only where they are today."
+)
+
 # Twelve weeks: long enough for a seasonal shape to show, short enough that
 # the definition is likely to have held for most of it.
 WEEKS = 12

@@ -36,6 +36,12 @@ from ..periods import work_windows
 
 KEY = "boundaries"
 
+# What this section means, in plain language, for a report's glossary.
+MEANS = (
+    "Work that ended up outside your working hours — evenings and "
+    "weekends — and any per-task settings that widened the window."
+)
+
 # Keys that buy time outside the default window, as opposed to narrowing it
 # (`work_days=4`) or just packing it tighter (`buffer_minutes=0`).
 _WIDENING_KEYS = ("work_start_hour", "work_end_hour", "work_days")

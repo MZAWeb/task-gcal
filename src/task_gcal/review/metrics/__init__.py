@@ -5,14 +5,20 @@ prompting, no mutation. Ordered as the report should read — **capacity first**
 so every later number has an honest denominator, then output, then flow, then
 whether the plan survived.
 
-Adding a metric means adding a builder here. There is deliberately no plugin
+Adding a metric means adding an entry here. There is deliberately no plugin
 framework: a list of functions is easier to read, and every metric has to
 justify itself to a person rather than to a registry.
+
+Each entry also carries what the section *means*, in words a person reading
+their first review would understand. It lives next to the builder so a new
+metric can't ship without one — "Scope" and "Stagnation" are meaningless
+labels until somebody explains them, and the report is where that has to
+happen.
 """
 
 from __future__ import annotations
 
-from typing import Callable, Iterable
+from typing import Callable, Iterable, NamedTuple
 
 from ..model import Section
 from . import (
@@ -32,22 +38,29 @@ from . import (
 
 SectionBuilder = Callable[[object], Section]
 
+
+class Metric(NamedTuple):
+    key: str
+    build: SectionBuilder
+    means: str
+
+
 # Ordered as the report reads: capacity, then output, then flow, then whether
 # the plan survived, then the behavioural detail, then what needs deciding.
-_BUILDERS: tuple[tuple[str, SectionBuilder], ...] = (
-    (capacity.KEY, capacity.build),
-    (throughput.KEY, throughput.build),
-    (flow.KEY_FLOW, flow.build_flow),
-    (flow.KEY_LEAD_TIME, flow.build_lead_time),
-    (followthrough.KEY, followthrough.build),
-    (deadlines.KEY, deadlines.build),
-    (churn.KEY, churn.build),
-    (friction.KEY, friction.build),
-    (attempts.KEY, attempts.build),
-    (scope.KEY, scope.build),
-    (boundaries.KEY, boundaries.build),
-    (stagnation_section.KEY, stagnation_section.build),
-    (trends.KEY, trends.build),
+_METRICS: tuple[Metric, ...] = (
+    Metric(capacity.KEY, capacity.build, capacity.MEANS),
+    Metric(throughput.KEY, throughput.build, throughput.MEANS),
+    Metric(flow.KEY_FLOW, flow.build_flow, flow.MEANS_FLOW),
+    Metric(flow.KEY_LEAD_TIME, flow.build_lead_time, flow.MEANS_LEAD_TIME),
+    Metric(followthrough.KEY, followthrough.build, followthrough.MEANS),
+    Metric(deadlines.KEY, deadlines.build, deadlines.MEANS),
+    Metric(churn.KEY, churn.build, churn.MEANS),
+    Metric(friction.KEY, friction.build, friction.MEANS),
+    Metric(attempts.KEY, attempts.build, attempts.MEANS),
+    Metric(scope.KEY, scope.build, scope.MEANS),
+    Metric(boundaries.KEY, boundaries.build, boundaries.MEANS),
+    Metric(stagnation_section.KEY, stagnation_section.build, stagnation_section.MEANS),
+    Metric(trends.KEY, trends.build, trends.MEANS),
 )
 
 # The default weekly review has to fit one terminal screen, so only these
@@ -66,12 +79,17 @@ SUMMARY_KEYS: tuple[str, ...] = (
 
 
 def build_sections(facts) -> tuple[Section, ...]:
-    return tuple(build(facts) for _key, build in _BUILDERS)
+    return tuple(metric.build(facts) for metric in _METRICS)
 
 
 def section_keys() -> tuple[str, ...]:
     """Every `--section` name, for argparse choices and for `--help`."""
-    return tuple(key for key, _build in _BUILDERS)
+    return tuple(metric.key for metric in _METRICS)
+
+
+def glossary() -> dict[str, str]:
+    """What each section means, keyed by section name."""
+    return {metric.key: metric.means for metric in _METRICS}
 
 
 def summary_sections(

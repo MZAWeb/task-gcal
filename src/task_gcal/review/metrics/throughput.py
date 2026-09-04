@@ -19,6 +19,12 @@ from ..model import Coverage, Section, Suggestion
 
 KEY = "throughput"
 
+# What this section means, in plain language, for a report's glossary.
+MEANS = (
+    "What you finished, and how much time those tasks were expected to "
+    "take. Grouped by project, so you can see where the time went."
+)
+
 # How many projects to name before collapsing the rest into "other".
 _TOP_PROJECTS = 5
 

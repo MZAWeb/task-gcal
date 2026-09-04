@@ -23,6 +23,12 @@ from ..model import Coverage, Section, Suggestion
 
 KEY = "follow_through"
 
+# What this section means, in plain language, for a report's glossary.
+MEANS = (
+    "When a block of time you had set aside came and went, was the task "
+    "actually done by the end of it?"
+)
+
 # Below this rate the week is worth a closing note. Not a grade: a low rate
 # with a meeting-heavy capacity line is an explanation, not a failing.
 _LOW_RATE = 0.6

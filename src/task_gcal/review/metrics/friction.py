@@ -36,6 +36,12 @@ from ..model import Coverage, Section, Suggestion
 
 KEY = "friction"
 
+# What this section means, in plain language, for a report's glossary.
+MEANS = (
+    "The reasons you gave for the blocks that did not go to plan. Empty "
+    "unless you run task-gcal checkin, and no answer counts against you."
+)
+
 # Outcomes that represent a commitment actually missed, and so have a "why"
 # worth counting. `progressed` is left out on purpose: work that was always
 # going to take more than one sitting isn't friction, and counting it would

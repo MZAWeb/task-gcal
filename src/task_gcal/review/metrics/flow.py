@@ -17,6 +17,15 @@ from ..model import Coverage, Section, Suggestion
 KEY_FLOW = "flow"
 KEY_LEAD_TIME = "lead_time"
 
+# What these sections mean, in plain language, for a report's glossary.
+MEANS_FLOW = (
+    "Whether work is arriving faster than you are finishing it. A net of +9 "
+    "means nine more tasks are open than when the period started."
+)
+MEANS_LEAD_TIME = (
+    "How long a task waits between being written down and being finished."
+)
+
 # Net growth beyond this many tasks in one period is worth a closing note
 # rather than a shrug.
 _GROWTH_THRESHOLD = 5

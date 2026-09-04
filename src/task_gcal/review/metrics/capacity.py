@@ -19,6 +19,13 @@ from ..model import Coverage, Section, Suggestion
 
 KEY = "capacity"
 
+# What this section means, in plain language, for a report's glossary.
+MEANS = (
+    "How much of the period was actually free to plan work into, once "
+    "meetings and non-working hours are taken out. Read every other number "
+    "here against this one."
+)
+
 # Above this share of working time in meetings, the week's throughput needs no
 # further explanation. Chosen to be obviously bad rather than borderline.
 _MEETING_HEAVY = 0.5
