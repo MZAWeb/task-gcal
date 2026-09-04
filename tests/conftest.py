@@ -383,6 +383,58 @@ class RunResult:
         return []
 
 
+def taskchampion_db(directory, ops, *, version=(0, 2), synced=False, wal=False):
+    """A database shaped like TaskChampion's, for the op-log reader.
+
+    Built with the real schema — `(singleton, major, minor)` in `version`, JSON
+    blobs in `operations` — rather than mocked, because the risk that module
+    carries is entirely about someone else's private storage. A mock of our own
+    assumptions would prove nothing.
+    """
+    import json
+    import sqlite3
+
+    from task_gcal.taskchampion import DB_FILENAME
+
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / DB_FILENAME
+    con = sqlite3.connect(path)
+    con.executescript(
+        """
+        CREATE TABLE version (
+            singleton INTEGER PRIMARY KEY CHECK (singleton = 0),
+            major INTEGER, minor INTEGER);
+        CREATE TABLE operations (id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data STRING, synced BOOL);
+        CREATE TABLE sync_meta (key STRING PRIMARY KEY, value STRING);
+        """
+    )
+    if version is not None:
+        con.execute("INSERT INTO version VALUES (0, ?, ?)", version)
+    for data in ops:
+        blob = data if isinstance(data, str) else json.dumps(data)
+        con.execute("INSERT INTO operations (data, synced) VALUES (?, 0)", (blob,))
+    if synced:
+        con.execute("INSERT INTO sync_meta VALUES ('server', 'https://x')")
+    if wal:
+        con.execute("PRAGMA journal_mode=WAL")
+    con.commit()
+    con.close()
+    return path
+
+
+def tc_update(
+    uuid="u1", prop="due", old=None, new="1788472800", at="2026-09-01T10:00:00Z"
+):
+    """One `Update` operation as TaskChampion writes it."""
+    return {
+        "Update": {
+            "uuid": uuid, "property": prop,
+            "old_value": old, "value": new, "timestamp": at,
+        }
+    }
+
+
 @pytest.fixture(autouse=True)
 def isolated_journal(tmp_path, monkeypatch):
     """Point the journal at a temp dir for *every* test.

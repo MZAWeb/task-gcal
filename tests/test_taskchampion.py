@@ -8,7 +8,6 @@ storage. A test against a mock of our own assumptions would prove nothing.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from datetime import datetime, timezone
 
@@ -16,45 +15,17 @@ import pytest
 
 from task_gcal import taskchampion as tc
 
+from conftest import taskchampion_db, tc_update
+
 UTC = timezone.utc
 
 
-def make_db(tmp_path, ops, *, version=(0, 2), synced=False, wal=False):
-    """A database shaped like TaskChampion's."""
-    tmp_path.mkdir(parents=True, exist_ok=True)
-    path = tmp_path / tc.DB_FILENAME
-    con = sqlite3.connect(path)
-    con.executescript(
-        """
-        CREATE TABLE version (
-            singleton INTEGER PRIMARY KEY CHECK (singleton = 0),
-            major INTEGER, minor INTEGER);
-        CREATE TABLE operations (id INTEGER PRIMARY KEY AUTOINCREMENT,
-            data STRING, synced BOOL);
-        CREATE TABLE sync_meta (key STRING PRIMARY KEY, value STRING);
-        """
-    )
-    if version is not None:
-        con.execute("INSERT INTO version VALUES (0, ?, ?)", version)
-    for data in ops:
-        blob = data if isinstance(data, str) else json.dumps(data)
-        con.execute("INSERT INTO operations (data, synced) VALUES (?, 0)", (blob,))
-    if synced:
-        con.execute("INSERT INTO sync_meta VALUES ('server', 'https://x')")
-    if wal:
-        con.execute("PRAGMA journal_mode=WAL")
-    con.commit()
-    con.close()
-    return path
+def make_db(tmp_path, ops, **kwargs):
+    return taskchampion_db(tmp_path, ops, **kwargs)
 
 
-def update(uuid="u1", prop="due", old=None, new="1788472800", at="2026-09-01T10:00:00Z"):
-    return {
-        "Update": {
-            "uuid": uuid, "property": prop,
-            "old_value": old, "value": new, "timestamp": at,
-        }
-    }
+def update(**kwargs):
+    return tc_update(**kwargs)
 
 
 # ---------------------------------------------------------------------------
