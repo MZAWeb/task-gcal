@@ -22,7 +22,7 @@ SETTINGS = Settings(timezone="UTC")
 def snapshot(when, *, settings=SETTINGS):
     return journal.build_record(
         settings=settings,
-        mode=journal.MODE_SNAPSHOT,
+        mode=journal.MODE_SCHEDULE,
         at=when,
         observations=(),
     )
@@ -330,67 +330,3 @@ def test_a_flat_series_still_draws_a_line():
 def test_a_single_point_series_does_not_divide_by_zero():
     out = sparklines([("Done", [3.0], "")], labels=["a"])
     assert "<polyline" in out
-
-
-# ---------------------------------------------------------------------------
-# Backfilled weeks are a different measurement
-# ---------------------------------------------------------------------------
-
-def backfilled(when):
-    return journal.build_record(
-        settings=replace(SETTINGS, report=""),
-        mode=journal.MODE_BACKFILL,
-        at=when,
-        observations=(),
-    )
-
-
-def test_a_reconstructed_week_is_not_comparable_with_a_live_one(
-    review, isolated_journal
-):
-    # Its blocks come from the calendar alone and its pushes are unobserved
-    # rather than zero, so plotting it beside live weeks would put two
-    # different measurements on one line.
-    monthly(review).tasks(*completions(2, 4))
-    review.records(
-        *[backfilled(at(-7 * w, 12)) for w in range(6, 12)],
-        *[snapshot(at(-7 * w, 12)) for w in range(0, 6)],
-    )
-
-    result = section(review)
-    weeks = {w["label"]: w for w in result.data["weeks"]}
-    assert weeks["Week 26"]["reconstructed"] is True
-    assert weeks["Week 26"]["comparable"] is False
-    assert weeks["Week 37"]["comparable"] is True
-    assert "reconstructed by `backfill`" in "\n".join(result.detail)
-
-
-def test_a_week_with_both_live_and_reconstructed_records_is_comparable(
-    review, isolated_journal
-):
-    # A backfilled day filled a gap in a week that was also observed live;
-    # the live observation is what makes it measurable.
-    monthly(review).tasks(*completions(2, 4))
-    review.records(
-        *[snapshot(at(-7 * w, 12)) for w in range(12)],
-        backfilled(at(-14, 9)),
-    )
-
-    weeks = {w["label"]: w for w in section(review).data["weeks"]}
-    assert all(w["comparable"] for w in weeks.values())
-
-
-def test_an_all_backfill_journal_still_gets_a_full_trend(
-    review, isolated_journal
-):
-    # A fresh install that has only run `backfill` has every week
-    # reconstructed, so they are all the same measurement and comparable
-    # with each other. Disqualifying the lot would leave no trend at all.
-    monthly(review).tasks(*completions(2, 4))
-    review.records(*[backfilled(at(-7 * w, 12)) for w in range(12)])
-
-    result = section(review)
-    (coverage,) = result.coverage
-    assert coverage.observed == coverage.total
-    assert result.data["comparable_from"] is None
-    assert result.measured is True

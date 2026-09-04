@@ -23,7 +23,6 @@ from datetime import timedelta
 from typing import Optional
 
 from ...intervals import humanize_minutes
-from ...journal import MODE_BACKFILL
 from ..model import Coverage, Section
 from ..periods import KIND_MONTH, week_of
 
@@ -49,9 +48,6 @@ class WeekPoint:
     blocks_honored: int
     observed_pushes: int
     settings_hash: Optional[str]
-    # True when every observation in the week came from `backfill`, which has
-    # no block history and so cannot have observed a placement move.
-    reconstructed: bool = False
     comparable: bool = True
 
     @property
@@ -178,14 +174,10 @@ def build(facts) -> Section:
         "Oldest week first. Trends use only weeks measured the same way.",
     ]
     if comparable_from:
-        reason = (
-            "some earlier weeks were reconstructed by `backfill`"
-            if any(p.reconstructed for p in points)
-            else "settings or definitions changed"
-        )
         detail.append(
-            f"Only {comparable_from} onward is comparable ({reason}); "
-            "earlier weeks are shown but excluded from the median."
+            f"Settings or definitions changed, so only {comparable_from} "
+            "onward is comparable; earlier weeks are shown but excluded from "
+            "the median."
         )
     planned = [p.planned_minutes for p in points]
     detail.append(
@@ -214,7 +206,6 @@ def build(facts) -> Section:
                     "blocks_ended": p.blocks_ended,
                     "blocks_honored": p.blocks_honored,
                     "observed_pushes": p.observed_pushes,
-                    "reconstructed": p.reconstructed,
                     "comparable": p.comparable,
                 }
                 for p in points
@@ -286,7 +277,6 @@ def series(facts, *, weeks: Optional[int] = None) -> list[WeekPoint]:
                 blocks_honored=len(honored),
                 observed_pushes=pushes,
                 settings_hash=_hash_in(facts, window),
-                reconstructed=_reconstructed_only(facts, window),
             )
         )
     return _mark_comparable(points, latest_hash)
@@ -297,26 +287,17 @@ def _mark_comparable(
 ) -> list[WeekPoint]:
     """Decide comparability once the whole series is known.
 
-    Two rules, and the second needs the whole series to apply:
-
-    - A week whose settings hash differs from the current one measured
-      something else. A week with no hash at all can't disagree, so it stays
-      comparable rather than being excluded for missing metadata.
-    - A reconstructed week is a different measurement *from a live one* — its
-      blocks come from the calendar alone and its pushes are unobserved
-      rather than zero. But if every week is reconstructed, they are all the
-      same measurement, and disqualifying the lot would give a fresh install
-      that has only run `backfill` no trend at all.
+    A week whose settings hash differs from the current one measured something
+    else, so a trend must not span the boundary. A week with no hash at all
+    can't disagree with anything, so it stays comparable rather than being
+    excluded for missing metadata — otherwise a quiet week would break the
+    series for bookkeeping reasons.
     """
-    mixed = any(p.reconstructed for p in points) and any(
-        not p.reconstructed for p in points
-    )
     return [
         replace(
             point,
             comparable=(
-                (point.settings_hash is None or point.settings_hash == latest_hash)
-                and not (mixed and point.reconstructed)
+                point.settings_hash is None or point.settings_hash == latest_hash
             ),
         )
         for point in points
@@ -329,42 +310,17 @@ def _task_done_by(facts, uuid: Optional[str], moment) -> bool:
 
 
 def _latest_hash(facts) -> Optional[str]:
-    """The most recent live settings hash.
-
-    Backfill is skipped: it reconstructs the past under *today's* settings
-    with the report name blanked, so its hash describes the importer rather
-    than what was in force at the time.
-    """
     for record in reversed(facts.journal.records):
-        if record.mode != MODE_BACKFILL and record.settings_hash:
+        if record.settings_hash:
             return record.settings_hash
     return None
 
 
 def _hash_in(facts, window) -> Optional[str]:
     for record in reversed(facts.journal.records):
-        if (
-            record.mode != MODE_BACKFILL
-            and window.contains(record.at)
-            and record.settings_hash
-        ):
+        if window.contains(record.at) and record.settings_hash:
             return record.settings_hash
     return None
-
-
-def _reconstructed_only(facts, window) -> bool:
-    """True when the week was observed only by `backfill`.
-
-    Such a week is genuinely a different measurement: its blocks come from
-    the calendar alone and its deadline pushes are unobserved rather than
-    zero. Plotting it beside live weeks would put two different things on
-    one line, so it is treated as incomparable — deliberately, not as a
-    side effect of the importer using a different settings hash.
-    """
-    in_window = [r for r in facts.journal.records if window.contains(r.at)]
-    return bool(in_window) and all(
-        r.mode == MODE_BACKFILL for r in in_window
-    )
 
 
 def _median(values: list[int]) -> float:

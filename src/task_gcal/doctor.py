@@ -42,6 +42,7 @@ def run(settings: Settings, *, now: Optional[datetime] = None) -> int:
         _check_timezone(settings),
         _check_taskwarrior(settings),
         _check_credentials(),
+        _check_history(settings),
         _check_journal(settings, now),
         _check_reflections(),
     ]
@@ -193,10 +194,82 @@ def _check_credentials() -> Check:
     return Check("google auth", OK, f"token present, mode {mode}")
 
 
+def _check_history(settings: Settings) -> Check:
+    """Taskwarrior's change history, and how much of it we hold.
+
+    Reads the operation log rather than harvesting, so `doctor` stays
+    read-only: it describes what a harvest *would* find.
+    """
+    from . import taskchampion as tc
+    from .changes import load as load_changes
+
+    history = load_changes()
+    held = len(history.changes)
+    try:
+        _ops, meta = tc.read(
+            path=None, after_id=0, limit=0, require_known_schema=False
+        )
+    except tc.OperationsUnavailable as e:
+        if held:
+            return Check(
+                "task history",
+                WARN,
+                f"{held} change(s) held, but Taskwarrior's log is unreadable "
+                f"now ({e})",
+                "existing history is safe; new changes won't be captured "
+                "until this is fixed",
+            )
+        return Check(
+            "task history",
+            WARN,
+            f"no change history, and Taskwarrior's log is unreadable: {e}",
+            "scheduling is unaffected, but deadline churn, estimate churn and "
+            "stagnation all need it",
+        )
+
+    if meta.schema_version is not None and (
+        meta.schema_version[0] != tc.KNOWN_SCHEMA_MAJOR
+    ):
+        return Check(
+            "task history",
+            WARN,
+            f"Taskwarrior's storage is at schema {meta.schema_version}, which "
+            "this version doesn't read",
+            f"{held} change(s) already held are safe; upgrade task-gcal to "
+            "resume capturing",
+        )
+
+    detail = f"{held} change(s) held"
+    if history.earliest:
+        detail += f", exact since {history.earliest:%Y-%m-%d}"
+    notes = []
+    if not held:
+        notes.append(
+            "nothing harvested yet — the next `schedule` or `review` imports "
+            f"everything Taskwarrior remembers ({meta.total} operations)"
+        )
+    if history.gaps:
+        notes.append(
+            f"{len(history.gaps)} operation(s) could not be read, so a change "
+            "may be missing"
+        )
+    if meta.sync_configured:
+        notes.append(
+            "sync is configured, so Taskwarrior may prune operations before "
+            "we harvest them; run task-gcal at least as often as you sync"
+        )
+    if not meta.schema_is_tested:
+        notes.append(
+            f"storage schema {meta.schema_version} is newer than tested"
+        )
+    status = WARN if notes else OK
+    return Check("task history", status, detail, "; ".join(notes) or None)
+
+
 def _check_journal(settings: Settings, now: datetime) -> Check:
     if settings.journal_detail == "off":
         return Check(
-            "journal",
+            "run journal",
             WARN,
             'journal_detail = "off": nothing is being recorded',
             'set it to "minimal" to keep history without storing task titles',
@@ -204,11 +277,9 @@ def _check_journal(settings: Settings, now: datetime) -> Check:
     files = run_files()
     if not files:
         return Check(
-            "journal",
-            WARN,
-            f"no records under {data_dir()}",
-            "run `task-gcal backfill` to seed history, and `task-gcal "
-            "snapshot` on a timer to keep it",
+            "run journal",
+            OK,
+            f"no scheduling runs recorded yet under {data_dir()}",
         )
     read = load(since=now - timedelta(days=30))
     # Local dates, like every other day count in the tool. `r.at.date()` is
@@ -222,20 +293,12 @@ def _check_journal(settings: Settings, now: datetime) -> Check:
     )
     if read.unreadable_lines:
         return Check(
-            "journal",
+            "run journal",
             WARN,
             f"{detail}; {read.unreadable_lines} unreadable line(s)",
             "the unreadable lines are skipped; reviews will say so",
         )
-    if days < 7:
-        return Check(
-            "journal",
-            WARN,
-            detail,
-            "churn metrics are a lower bound at this sampling rate; run "
-            "`task-gcal snapshot` every few hours",
-        )
-    return Check("journal", OK, detail)
+    return Check("run journal", OK, detail)
 
 
 def _check_reflections() -> Check:

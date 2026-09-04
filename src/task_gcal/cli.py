@@ -30,10 +30,6 @@ from .config import (
 from .gcal import GCal
 from .schedule import reconcile
 
-# Mirrors `backfill.DEFAULT_BACKFILL_DAYS`, duplicated only so building the
-# parser doesn't drag the importer in. Kept honest by a test.
-DEFAULT_BACKFILL_DAYS = 90
-
 # Mirrors `review.episodes.DEFAULT_SINCE_DAYS`, for the same reason.
 DEFAULT_CHECKIN_DAYS = 14
 
@@ -249,35 +245,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     schedule_p.set_defaults(func=_run_schedule)
 
-    snapshot_p = sub.add_parser(
-        "snapshot",
-        parents=[overrides],
-        help="Record what the calendar and task list look like right now.",
-        description=(
-            "Append one observation to the journal and change nothing. "
-            "Safe to run on a schedule; makes no calendar writes."
-        ),
-    )
-    snapshot_p.set_defaults(func=_run_snapshot)
-
-    backfill_p = sub.add_parser(
-        "backfill",
-        parents=[overrides],
-        help="Seed the journal from Taskwarrior's existing change history.",
-        description=(
-            "Reconstruct daily observations for a past window from "
-            "Taskwarrior's per-task modification log, so the first review "
-            "is useful immediately. Read-only with respect to Taskwarrior "
-            "and the calendar; never overwrites a day already observed."
-        ),
-    )
-    backfill_p.add_argument(
-        "--since", type=_date_arg, metavar="YYYY-MM-DD",
-        help=f"Earliest day to reconstruct (default: {DEFAULT_BACKFILL_DAYS} "
-             "days ago).",
-    )
-    backfill_p.set_defaults(func=_run_backfill)
-
     review_p = sub.add_parser(
         "review",
         parents=[overrides],
@@ -358,23 +325,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_snapshot(_args, settings) -> int:
-    from .snapshot import snapshot
-
-    return snapshot(settings)
-
-
-def _run_backfill(args, settings) -> int:
-    from .backfill import backfill
-
-    since = None
-    if args.since is not None:
-        tz = settings.resolve_timezone()
-        since = args.since.replace(tzinfo=tz).astimezone(timezone.utc)
-    code, _summary = backfill(settings, since=since)
-    return code
-
-
 def _run_review(args, settings) -> int:
     from pathlib import Path
 
@@ -413,9 +363,7 @@ def _run_doctor(_args, settings) -> int:
 
 
 # Recognized subcommands, for `_normalize_argv`.
-_SUBCOMMANDS = (
-    "schedule", "snapshot", "backfill", "review", "checkin", "doctor",
-)
+_SUBCOMMANDS = ("schedule", "review", "checkin", "doctor")
 
 # Top-level flags that must not be swallowed by the implicit `schedule`.
 _TOP_LEVEL_FLAGS = ("-h", "--help", "--version")

@@ -11,7 +11,7 @@ line of it. Three things belong here and nowhere else:
 
 from __future__ import annotations
 
-from ..journal import MODE_BACKFILL, definition_boundaries
+from ..journal import definition_boundaries
 
 
 def build(facts) -> tuple[str, ...]:
@@ -29,13 +29,9 @@ def build(facts) -> tuple[str, ...]:
             "Anything the journal didn't see is missing, not zero."
         )
 
-    backfilled = facts.backfilled_days()
-    if backfilled:
-        out.append(
-            f"{len(backfilled)} day(s) were reconstructed by `backfill`, "
-            "which carries no block history — placement churn over those "
-            "days is unobserved rather than absent."
-        )
+    note = facts.change_coverage_note()
+    if note:
+        out.append(note)
 
     boundaries = definition_boundaries(records)
     if boundaries:
@@ -68,14 +64,8 @@ def build(facts) -> tuple[str, ...]:
 
     if not records:
         out.append(
-            "No journal observations for this period. Run `task-gcal "
-            "snapshot` on a timer, or `task-gcal backfill` to seed history."
+            "This period has no scheduling runs recorded, so nothing is "
+            "known about how blocks moved during it."
         )
 
     return tuple(out)
-
-
-def observed_backfill_only(facts) -> bool:
-    """True when every observation in the period is a reconstruction."""
-    records = facts.records_in_period()
-    return bool(records) and all(r.mode == MODE_BACKFILL for r in records)

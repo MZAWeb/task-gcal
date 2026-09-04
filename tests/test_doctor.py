@@ -76,11 +76,13 @@ def health(monkeypatch, capsys, tmp_path, isolated_journal):
 # The happy path
 # ---------------------------------------------------------------------------
 
-def test_a_healthy_setup_passes(health):
+def test_a_healthy_setup_has_no_failures(health):
+    # A warning about missing task history is expected here: the fixture has
+    # no Taskwarrior database to harvest from.
     journal.append(
         journal.build_record(
             settings=health.settings,
-            mode=journal.MODE_SNAPSHOT,
+            mode=journal.MODE_SCHEDULE,
             at=NOW,
             observations=(),
         )
@@ -91,8 +93,8 @@ def test_a_healthy_setup_passes(health):
 def test_every_check_is_reported(health):
     health.run()
     for name in (
-        "config", "timezone", "taskwarrior", "google auth", "journal",
-        "check-ins",
+        "config", "timezone", "taskwarrior", "google auth", "task history",
+        "run journal", "check-ins",
     ):
         assert health.line(name), name
 
@@ -166,44 +168,38 @@ def test_an_unknown_timezone_is_a_failure(health):
 # Journal health
 # ---------------------------------------------------------------------------
 
-def test_an_empty_journal_says_how_to_seed_it(health):
+def test_an_unreadable_task_log_warns_without_failing(health):
+    # Scheduling works fine without change history, so this must not be a
+    # failure — but the churn metrics depend on it, so it must be said.
+    assert health.run() == 0
+    assert "warn" in health.line("task history")
+    assert "scheduling is unaffected" in health.out
+
+
+def test_no_scheduling_runs_yet_is_not_a_problem(health):
     health.run()
-    assert "warn" in health.line("journal")
-    assert "backfill" in health.out
+    assert " ok " in health.line("run journal")
 
 
 def test_a_disabled_journal_is_a_warning(health):
     health.configure(journal_detail="off")
     health.run()
-    assert "warn" in health.line("journal")
+    assert "warn" in health.line("run journal")
     assert "minimal" in health.out
 
 
-def test_sparse_sampling_is_flagged_as_a_lower_bound(health):
-    journal.append(
-        journal.build_record(
-            settings=health.settings,
-            mode=journal.MODE_SNAPSHOT,
-            at=NOW,
-            observations=(),
-        )
-    )
-    health.run()
-    assert "lower bound" in health.out
-
-
-def test_dense_sampling_passes(health):
+def test_recorded_runs_are_reported(health):
     for day in range(10):
         journal.append(
             journal.build_record(
                 settings=health.settings,
-                mode=journal.MODE_SNAPSHOT,
+                mode=journal.MODE_SCHEDULE,
                 at=NOW - timedelta(days=day),
                 observations=(),
             )
         )
     health.run()
-    assert " ok " in health.line("journal")
+    assert " ok " in health.line("run journal")
 
 
 def test_journal_days_are_counted_in_the_local_zone(health):
@@ -216,13 +212,13 @@ def test_journal_days_are_counted_in_the_local_zone(health):
         journal.append(
             journal.build_record(
                 settings=health.settings,
-                mode=journal.MODE_SNAPSHOT,
+                mode=journal.MODE_SCHEDULE,
                 at=NOW - timedelta(days=day),
                 observations=(),
             )
         )
     health.run()
-    assert " ok " in health.line("journal")
+    assert " ok " in health.line("run journal")
     assert "10 day(s)" in health.out
 
 
@@ -230,7 +226,7 @@ def test_unreadable_journal_lines_are_surfaced(health, isolated_journal):
     journal.append(
         journal.build_record(
             settings=health.settings,
-            mode=journal.MODE_SNAPSHOT,
+            mode=journal.MODE_SCHEDULE,
             at=NOW,
             observations=(),
         )

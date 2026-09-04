@@ -245,14 +245,15 @@ Read-only sanity check on everything the tool depends on, where each
 failure names its fix rather than just the symptom:
 
 ```text
-[ ok ] config       no config.toml; using built-in defaults
-[ ok ] timezone     Europe/Amsterdam (from system)
-[ ok ] taskwarrior  `task export next` returned 16 task(s), 16 with a `estimate`
-[ ok ] google auth  token present, mode 600
-[warn] journal      no records under ~/.local/share/task-gcal
-                    → run `task-gcal backfill` to seed history, and
-                      `task-gcal snapshot` on a timer to keep it
-[ ok ] check-ins    none recorded (optional — reviews work without them)
+[ ok ] config        no config.toml; using built-in defaults
+[ ok ] timezone      Europe/Amsterdam (from system)
+[ ok ] taskwarrior   `task export next` returned 13 task(s), 13 with a `estimate`
+[ ok ] google auth   token present, mode 600
+[warn] task history  0 change(s) held
+                     → nothing harvested yet — the next `schedule` or `review`
+                       imports everything Taskwarrior remembers (23836 operations)
+[ ok ] run journal   no scheduling runs recorded yet
+[ ok ] check-ins     none recorded (optional — reviews work without them)
 ```
 
 A monthly review adds a 12-week trend. It adds no new *metric* — the same
@@ -278,87 +279,88 @@ the machine.
 Bare `task-gcal` is unaffected by any of this: none of the review code is
 even imported unless you run `review`.
 
-## The observation journal
+## Where history comes from
 
-Almost every interesting question about your own behaviour — did that
-deadline move? did the block survive? was the task still open the next
-day? — is a *diff between two observations*, and none of it is
-reconstructable after the fact. So every real run appends one record to
-an append-only journal:
+Reviews need to know what your tasks *used to* look like — when a due date
+moved, when an estimate grew. None of that is in a task's current state.
+
+**Taskwarrior already records all of it.** `taskchampion.sqlite3` has an
+`operations` table with every field change, timestamped. That's the same
+history `task <uuid> info` renders, except structured and one query instead
+of one subprocess per task: 38ms against 26s across 1,800 tasks.
+
+So there is **no cron and no separate import step**. Any command that
+already talks to Taskwarrior copies unseen operations into
 
 ```
-~/.local/share/task-gcal/runs/2026-09.jsonl
+~/.local/share/task-gcal/changes.jsonl
 ```
 
-(`$XDG_DATA_HOME` is honored; `TASK_GCAL_DATA_DIR` overrides both.)
+Field changes happen when *you* edit a task, so the next run picks them up
+exactly, however long since the last one. The first run imports everything
+Taskwarrior still remembers.
 
-Three rules keep it honest:
+It's copied rather than read live for one reason: the operations table is a
+*synchronisation* log, and `purge.on-sync` can prune it. Reading it directly
+would mean last month's review could answer differently after a sync, and a
+report you can't reproduce is worth very little.
 
-- **Scheduling only ever appends.** It never reads history to decide
-  where a block goes, so a corrupt or deleted journal cannot produce a
-  wrong calendar. Deleting it costs you history and nothing else.
-- **Nothing derived is stored.** No totals, no scores, no streaks —
-  reviews recompute everything from raw observations, so changing a
-  metric's definition can't leave numbers behind that meant something
-  else. Each record carries a schema version, a metrics-definition
-  version, and a hash of the settings that affect meaning, so a review
-  can refuse to draw a trend across a boundary rather than averaging two
-  different things.
+Because it's Taskwarrior's private storage, reads are careful: `mode=ro`, one
+short transaction, a small busy timeout, gated on a schema version we've
+actually tested. A busy or unrecognised database is a missed harvest, never
+an error — and never something that can slow down or fail a `task` command.
+`task-gcal doctor` reports what it holds, how far back it's exact, and
+whether anything was pruned or unreadable:
+
+```text
+[ ok ] task history  10898 change(s) held, exact since 2026-05-13
+```
+
+The one thing Taskwarrior cannot know is where your calendar blocks were, so
+that stays ours. Every real scheduling run appends one record to
+
+```
+~/.local/share/task-gcal/runs/YYYY-MM.jsonl
+```
+
+A block can only move when the scheduler moves it, so scheduling runs are a
+complete record of block movement by construction — which is the other half
+of why no timer is needed.
+
+Three rules keep both stores honest:
+
+- **Scheduling only ever appends.** It never reads history to decide where a
+  block goes, so a corrupt or deleted store cannot produce a wrong calendar.
+  Deleting either file costs you history and nothing else.
+- **Nothing derived is stored.** No totals, no scores, no streaks — reviews
+  recompute from raw changes, so altering a metric's definition can't leave
+  numbers behind that meant something else. Records carry a schema version, a
+  metrics-definition version, and a hash of the settings that affect meaning,
+  so a review can refuse to draw a trend across a boundary rather than
+  averaging two different things.
 - **A dry run records nothing.** Its placements were never made.
 
-Files are mode 0600 in a 0700 directory and nothing leaves your machine,
-but task titles and deadlines are sensitive, so there's a dial:
+Everything is mode 0600 in a 0700 directory and nothing leaves your machine,
+but task titles and deadlines are sensitive, so there's a dial for the run
+journal:
 
 ```toml
-journal_detail = "full"      # store descriptions (default)
-journal_detail = "minimal"   # store a 12-hex digest instead
+journal_detail = "full"      # default
+journal_detail = "minimal"   # store a digest instead of descriptions
 journal_detail = "off"       # record nothing at all
 ```
 
-`minimal` still tells two tasks apart and still notices a retitle, which
-is all the churn metrics need. At roughly 20 tasks a few times a day the
-whole thing is single-digit megabytes a year, so there's no rotation, no
-pruning, and deliberately no database.
+Your check-in answers live separately again, in `reflections.jsonl` —
+machine observations and your own words have different lifecycles, and
+answers get corrected while observations never do.
 
-### `task-gcal snapshot`
-
-How much the journal sees depends on how often it looks, so looking often
-is part of the design. `snapshot` appends one observation and touches
-nothing else — no calendar writes at all — which makes it safe to run on
-a timer:
-
-```bash
-task-gcal snapshot     # every few hours from cron or launchd
-```
-
-### `task-gcal backfill`
-
-Waiting weeks for the first useful review isn't necessary: Taskwarrior's
-own per-task modification log already holds recent due-date, estimate and
-scheduled-date changes. `backfill` reads it and reconstructs one daily
-observation per day of a past window:
-
-```bash
-task-gcal backfill                      # the last 90 days
-task-gcal backfill --since 2026-06-01
-```
-
-It is read-only with respect to Taskwarrior and the calendar, it never
-overwrites a day that was actually observed (so re-running it is safe and
-a real snapshot always wins), and it costs one `task info` subprocess per
-recent task — which is why it's a one-time import and not how reviews
-read history.
-
-Three limits, which every number derived from a backfilled day inherits:
-
-- **No calendar blocks.** Past events reveal only their *final* stored
-  times, not the moves made before they happened, so placement churn
-  starts accruing from the journal rather than being invented here.
-- **A field the log never mentions is assumed to have always held its
-  current value.** Inventing a change would be worse than assuming
-  stability.
-- **Timestamps come from a local-zone rendering with no offset**, so a
-  machine that has moved timezones is off by the difference.
+**Not** stored in Taskwarrior's own database, and not as UDAs. Your task
+directory contains a `taskchampion.sqlite3.bak-before-recovery-…` file: that
+recovery rebuilt the database and is what truncated your history. Anything of
+ours living there would have gone with it. It also has its own `version`
+table, so it migrates; sync wouldn't replicate our tables; and it would turn
+the worst case from "we lose our own history" into "your task data is
+damaged".
 
 ## Requirements
 

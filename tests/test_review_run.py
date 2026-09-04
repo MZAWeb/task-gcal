@@ -272,16 +272,17 @@ def test_checkin_does_not_claim_nothing_to_review_without_a_calendar(
     assert "Nothing to review" not in out
 
 
-def test_an_empty_setup_says_how_to_get_history(runner):
+def test_an_empty_setup_says_it_has_no_history(runner):
     runner.run()
-    assert "task-gcal snapshot" in runner.out
+    assert "no scheduling runs recorded" in runner.out
+    assert "No task-change history yet" in runner.out
 
 
 def test_journal_records_in_the_period_are_read(runner, isolated_journal):
     journal.append(
         journal.build_record(
             settings=SETTINGS,
-            mode=journal.MODE_SNAPSHOT,
+            mode=journal.MODE_SCHEDULE,
             at=at(0, 12),
             observations=(),
         )
@@ -289,7 +290,7 @@ def test_journal_records_in_the_period_are_read(runner, isolated_journal):
     runner.run(ReviewRequest(fmt="json"))
     payload = json.loads(runner.out)
 
-    assert not any("No journal observations" in c for c in payload["caveats"])
+    assert not any("no scheduling runs" in c for c in payload["caveats"])
     assert any("day(s) observed" in c for c in payload["caveats"])
 
 
@@ -302,7 +303,7 @@ def test_a_settings_change_inside_the_period_is_annotated(
         journal.append(
             journal.build_record(
                 settings=settings,
-                mode=journal.MODE_SNAPSHOT,
+                mode=journal.MODE_SCHEDULE,
                 at=at(offset, 12),
                 observations=(),
             )
@@ -351,20 +352,3 @@ def test_a_review_never_prompts(runner, monkeypatch):
     runner.run(ReviewRequest(triage=True))
 
     assert called == []
-
-
-def test_backfilled_days_are_flagged_as_having_no_block_history(
-    runner, isolated_journal
-):
-    journal.append(
-        journal.build_record(
-            settings=SETTINGS,
-            mode=journal.MODE_BACKFILL,
-            at=at(0, 12),
-            observations=(),
-        )
-    )
-    runner.run(ReviewRequest(fmt="json"))
-    payload = json.loads(runner.out)
-
-    assert any("reconstructed by `backfill`" in c for c in payload["caveats"])

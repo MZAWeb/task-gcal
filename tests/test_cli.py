@@ -148,25 +148,6 @@ def test_without_reoptimize_the_settle_window_is_left_alone(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# backfill --since
-# ---------------------------------------------------------------------------
-
-def test_a_since_date_is_parsed():
-    args = cli_mod._build_parser().parse_args(["backfill", "--since", "2026-06-01"])
-    assert (args.since.year, args.since.month, args.since.day) == (2026, 6, 1)
-
-
-def test_since_defaults_to_unset():
-    assert cli_mod._build_parser().parse_args(["backfill"]).since is None
-
-
-@pytest.mark.parametrize("value", ["yesterday", "01-06-2026", "2026-13-01"])
-def test_a_bad_since_date_is_a_usage_error(value):
-    with pytest.raises(SystemExit):
-        cli_mod._build_parser().parse_args(["backfill", "--since", value])
-
-
-# ---------------------------------------------------------------------------
 # review
 # ---------------------------------------------------------------------------
 
@@ -213,12 +194,6 @@ def test_the_parsers_format_choices_match_the_renderers():
     from task_gcal.review.render import FORMATS
 
     assert set(cli_mod._FORMAT_CHOICES) == set(FORMATS)
-
-
-def test_the_default_backfill_window_matches_the_importer():
-    from task_gcal.backfill import DEFAULT_BACKFILL_DAYS
-
-    assert cli_mod.DEFAULT_BACKFILL_DAYS == DEFAULT_BACKFILL_DAYS
 
 
 def test_the_default_checkin_window_matches_the_episode_finder():

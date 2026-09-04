@@ -15,7 +15,6 @@ from typing import Optional
 import pytest
 
 from task_gcal import schedule as schedule_mod
-from task_gcal import snapshot as snapshot_mod
 from task_gcal import taskw as taskw_mod
 from task_gcal.config import Settings
 from task_gcal.gcal import CalEvent
@@ -350,11 +349,6 @@ class Harness:
         captured = self._capsys.readouterr()
         return RunResult(code=code, out=captured.out, err=captured.err)
 
-    def snapshot(self):
-        code = snapshot_mod.snapshot(self.settings)
-        captured = self._capsys.readouterr()
-        return RunResult(code=code, out=captured.out, err=captured.err)
-
     def journal(self, **kwargs):
         """Everything the journal recorded so far, oldest first."""
         from task_gcal import journal as journal_mod
@@ -510,8 +504,6 @@ def harness(monkeypatch, capsys) -> Harness:
     monkeypatch.setattr(taskw_mod.subprocess, "run", tw.run)
     monkeypatch.setattr(schedule_mod, "GCal", lambda _settings: gcal)
     monkeypatch.setattr(schedule_mod, "datetime", _FrozenDatetime)
-    monkeypatch.setattr(snapshot_mod, "GCal", lambda _settings: gcal)
-    monkeypatch.setattr(snapshot_mod, "datetime", _FrozenDatetime)
 
     return Harness(tw, gcal, capsys)
 

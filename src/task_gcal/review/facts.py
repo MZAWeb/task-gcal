@@ -30,13 +30,7 @@ from ..changes import load as load_changes
 from ..config import Settings
 from ..gcal import CalEvent, GCal
 from ..intervals import clip_to_windows, total_minutes
-from ..journal import (
-    MODE_BACKFILL,
-    MODE_SCHEDULE,
-    MODE_SNAPSHOT,
-    JournalRead,
-    load,
-)
+from ..journal import MODE_SCHEDULE, JournalRead, load
 from ..taskw import TaskInfo, load_all_tasks
 from .periods import Period, work_windows
 
@@ -180,13 +174,6 @@ class Facts:
             )
         return None
 
-    def backfilled_days(self) -> set:
-        return {
-            r.at.astimezone(self.period.tz).date()
-            for r in self.records_in_period()
-            if r.mode == MODE_BACKFILL
-        }
-
     # ---------------------------- shared arithmetic -----------------------
     # Capacity owns the *reporting* of these, but more than one metric needs
     # the numbers, and two implementations of "how much of the week was
@@ -264,7 +251,7 @@ def collect(
     journal = load(
         since=period.start - timedelta(days=JOURNAL_LOOKBACK_DAYS),
         until=period.end,
-        modes=(MODE_SCHEDULE, MODE_SNAPSHOT, MODE_BACKFILL),
+        modes=(MODE_SCHEDULE,),
     )
     # Harvest before reading: a change you made since the last run should
     # appear in the review you're about to read. Never raises — a failed
