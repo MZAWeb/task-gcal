@@ -139,9 +139,13 @@ class PlacementObservation:
     # the new position, so a hand-move isn't re-reported for the rest of the
     # block's life.
     drift: tuple[str, ...] = ()
-    # Where we had left it, when drift was noticed. With `start` that's the
-    # whole move, so a review never needs the previous record to measure it.
+    # Where we had left it, when drift was noticed.
     drifted_from: Optional[datetime] = None
+    # Where we found it. Only written when it isn't `start` — that is, when the
+    # run went on to move the block somewhere else — so the three together are
+    # the whole sequence: where we had put it, where somebody moved it to, and
+    # where it ended up.
+    drifted_to: Optional[datetime] = None
 
     def to_dict(self) -> dict:
         out: dict[str, Any] = {
@@ -160,6 +164,8 @@ class PlacementObservation:
             out["drift"] = list(self.drift)
         if self.drifted_from is not None:
             out["drifted_from"] = _iso(self.drifted_from)
+        if self.drifted_to is not None and self.drifted_to != self.start:
+            out["drifted_to"] = _iso(self.drifted_to)
         return out
 
     @classmethod
@@ -179,6 +185,7 @@ class PlacementObservation:
             moved_reason=raw.get("moved_reason"),
             drift=_strings(raw.get("drift")),
             drifted_from=_dt(raw.get("drifted_from")),
+            drifted_to=_dt(raw.get("drifted_to")),
         )
 
 

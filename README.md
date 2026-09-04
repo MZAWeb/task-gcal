@@ -148,6 +148,7 @@ printed, which is the difference between a review and a dashboard:
 | `lead_time` | How long something waits before you do it |
 | `follow_through` | Did the plan survive contact? Which hour fails most? |
 | `deadlines` | The promise ledger: pushes, days moved, original vs renegotiated |
+| `churn` | How often blocks moved, split by what moved them |
 | `friction` | The mix of confirmed reasons (needs `checkin`) |
 | `attempts` | Blocks-to-completion — are the estimates fiction? |
 | `scope` | Estimates revised up, titles rewritten, deliberate deferral |

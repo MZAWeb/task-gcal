@@ -42,6 +42,7 @@ _SECTION_CHOICES = (
     "lead_time",
     "follow_through",
     "deadlines",
+    "churn",
     "friction",
     "attempts",
     "scope",

@@ -219,7 +219,10 @@ def _placement_log(
         existing = log.get(drift.event.id)
         if existing is not None:
             log[drift.event.id] = replace(
-                existing, drift=drift.kinds, drifted_from=drift.expected_start
+                existing,
+                drift=drift.kinds,
+                drifted_from=drift.expected_start,
+                drifted_to=drift.event.start,
             )
         elif drift.event.task_uuid:
             log[drift.event.id] = PlacementObservation(
@@ -229,6 +232,7 @@ def _placement_log(
                 end=drift.event.end,
                 drift=drift.kinds,
                 drifted_from=drift.expected_start,
+                drifted_to=drift.event.start,
             )
     return tuple(log.values())
 
