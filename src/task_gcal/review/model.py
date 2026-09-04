@@ -72,6 +72,12 @@ class Suggestion:
     # closed with this" is the tool noticing it's repeating itself, which is
     # both more honest and more likely to force the decision than saying the
     # same sentence again in the same tone.
+    #
+    # Worth watching on real data: at a high enough count this line can become
+    # furniture in its own right. Week 12 of "the 12th week running" is a fact
+    # about the tool rather than about the task, and at that point the count
+    # has *become* the finding — same words, different subject. Not fixed
+    # pre-emptively, because nobody knows yet where that line is.
     already_true_for: int = 0
 
 
