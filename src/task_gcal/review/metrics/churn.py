@@ -48,6 +48,21 @@ def build(facts) -> Section:
 
     window = (facts.period.start, facts.period.end)
     blocks = build_blocks(records)
+    if not blocks and _predates_placements(records):
+        # Runs recorded before the journal held placements. Reporting "nothing
+        # moved" here would turn missing data into a calm week.
+        return Section(
+            key=KEY,
+            label="Plan churn",
+            summary="the runs in this period recorded no placements",
+            measured=False,
+            detail=(
+                "These records were written before the journal logged where "
+                "each block was, so how often blocks moved is unknown for this "
+                "period rather than zero. Runs from now on record it.",
+            ),
+            data={"moves": 0},
+        )
     moves = [m for b in blocks.values() for m in b.moves_in(window)]
     # Blocks that existed during the period, whether or not they moved: the
     # denominator, so "6 moves" can be read against how many blocks there were.
@@ -107,6 +122,15 @@ def build(facts) -> Section:
         },
         suggestions=_suggest(blocks, window, facts),
     )
+
+
+def _predates_placements(records) -> bool:
+    """True if these records come from before the placement log existed.
+
+    Recognised by what they *did* carry: per-task observations, which a current
+    reader keeps in `unknown` rather than discarding.
+    """
+    return any("tasks" in r.unknown for r in records)
 
 
 def _restless(blocks, window, facts) -> list[str]:

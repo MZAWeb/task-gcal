@@ -177,6 +177,26 @@ def test_churn_is_unmeasured_without_any_runs(review):
     assert "no scheduling runs" in got.summary
 
 
+def test_runs_from_before_the_placement_log_are_unknown_not_calm(review):
+    # The old records logged task state, not block positions. Reading them as
+    # "no blocks, so nothing moved" would turn missing data into a quiet week.
+    old = journal.RunRecord(
+        run_id="old",
+        at=at(0, 12),
+        mode=journal.MODE_SCHEDULE,
+        timezone_name="UTC",
+        settings_hash="aaa",
+        calendar_id="primary",
+        report="next",
+        unknown={"tasks": [{"uuid": "a"}]},
+    )
+    review.records(old)
+    got = section(review)
+
+    assert got.measured is False
+    assert "no placements" in got.summary
+
+
 def test_a_quiet_period_says_nothing_moved_rather_than_nothing(review):
     review.records(a_run(at(0, 12), a_placement()))
     got = section(review)
