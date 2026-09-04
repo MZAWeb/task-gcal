@@ -83,7 +83,7 @@ def _sparklines(section: Section) -> list[str]:
 def _detail_block(section: Section) -> list[str]:
     out: list[str] = _sparklines(section)
     for line in section.detail:
-        out.extend(_fit(line, indent="  ", subsequent="    "))
+        out.extend(_fit(line, indent="  "))
     for coverage in section.coverage:
         out.append(f"  ({coverage.text})")
     if not section.measured:
@@ -92,18 +92,24 @@ def _detail_block(section: Section) -> list[str]:
     return out
 
 
-def _fit(
-    text: str, *, indent: str = "", subsequent: str = None, width: int = 78
-) -> list[str]:
+def _fit(text: str, *, indent: str = "", width: int = 78) -> list[str]:
     """Emit a detail line, wrapping only if it doesn't fit.
 
     Detail lines are label-padded columns, so the common case must go out
     byte for byte — reflowing them would collapse the padding the metric
     builders put there and turn a readable column into a paragraph.
+
+    A line that does need wrapping keeps its own leading indentation on every
+    line it becomes. Otherwise a long entry in a nested list would start two
+    columns to the left of its short neighbours, which reads as a different
+    list rather than a longer item.
     """
-    if len(indent) + len(text) <= width:
-        return [indent + text]
-    return _wrap(text, indent=indent, subsequent=subsequent, width=width)
+    own = text[: len(text) - len(text.lstrip())]
+    body = text.strip()
+    if len(indent) + len(text.rstrip()) <= width:
+        return [indent + text.rstrip()]
+    lead = indent + own
+    return _wrap(body, indent=lead, subsequent=lead + "  ", width=width)
 
 
 def _wrap(

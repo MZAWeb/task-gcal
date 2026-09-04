@@ -332,6 +332,20 @@ def test_all_shows_every_section(runner):
     assert keys == set(section_keys())
 
 
+def test_all_shows_every_section_in_full(runner):
+    # Thirteen summary lines you then have to re-run one at a time, each with a
+    # name you had to remember, is worse than either the summary or the detail.
+    runner.run(ReviewRequest(all_sections=True, fmt="json"))
+    sections = json.loads(runner.out)["sections"]
+    assert any(s.get("detail") for s in sections)
+
+
+def test_the_default_summary_stays_a_summary(runner):
+    runner.run(ReviewRequest(fmt="json"))
+    sections = json.loads(runner.out)["sections"]
+    assert all("detail" not in s for s in sections)
+
+
 def test_the_default_is_the_headline_sections_only(runner):
     runner.run(ReviewRequest(fmt="json"))
     keys = {s["key"] for s in json.loads(runner.out)["sections"]}

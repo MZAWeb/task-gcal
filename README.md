@@ -90,6 +90,7 @@ having still created and updated everything else. `--force` overrides it;
 task-gcal review --week
 task-gcal review --month
 task-gcal review --week --last 1          # the week before this one
+task-gcal review --week --all             # every section, in full
 task-gcal review --week --section capacity
 task-gcal review --triage                 # what needs a decision
 task-gcal review --month --format markdown -o notes/2026-09.md
@@ -135,10 +136,11 @@ Four rules shape everything in it:
 4. **It ends with one thing to look at.** If a report can't name a single
    concrete change, it's a dashboard.
 
-`--section NAME` prints one section in full instead of the summary
-(repeatable), and `--all` summarizes every section rather than the
-headline ones. The detailed metrics are requested rather than always
-printed, which is the difference between a review and a dashboard:
+`--all` prints every section in full — reach for that first. `--section
+NAME` (repeatable) narrows it to the ones you want once you know which
+those are. The default stays a one-screen summary of the headline
+sections, because a report that prints thirteen metrics every time is a
+dashboard:
 
 | Section | Answers |
 | --- | --- |

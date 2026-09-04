@@ -35,7 +35,7 @@ class ReviewRequest:
     kind: str = KIND_WEEK
     offset: int = 0  # periods back from the current one
     sections: tuple[str, ...] = ()  # empty means the one-screen summary
-    all_sections: bool = False  # every section, summary only
+    all_sections: bool = False  # every section, in full
     fmt: str = FORMAT_TERMINAL
     open_in_browser: bool = False
     output: Optional[Path] = None
@@ -94,9 +94,11 @@ def run(
         review,
         fmt=request.fmt,
         sections=chosen,
-        # An explicit `--section` means "show me this one properly", so the
-        # detail comes with it rather than needing a second flag.
-        detailed=bool(request.sections),
+        # Asking for sections means "show me these properly", so the detail
+        # comes with the request rather than needing a second flag. `--all` is
+        # the same request for all of them: nobody wants thirteen summary
+        # lines they then have to re-run one at a time to read.
+        detailed=bool(request.sections) or request.all_sections,
     )
 
     _emit(text, request, period)

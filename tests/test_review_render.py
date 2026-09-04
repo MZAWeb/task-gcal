@@ -148,6 +148,20 @@ def test_terminal_prose_is_wrapped_but_columns_are_not(populated):
     assert all(len(line) <= 80 for line in out.splitlines())
 
 
+def test_a_wrapped_entry_keeps_the_indentation_of_its_neighbours():
+    # A long entry in a nested list used to start two columns to the left of
+    # the short ones, which reads as a different list rather than a longer item.
+    from task_gcal.review.render import terminal
+
+    short, long = "  2x  a short one", "  3x  " + "a very long title " * 6
+    lines = terminal._fit(short, indent="  ") + terminal._fit(long, indent="  ")
+
+    entries = [line for line in lines if line.lstrip().startswith(("2x", "3x"))]
+    assert {len(e) - len(e.lstrip()) for e in entries} == {4}
+    # The continuation is indented past the entry it belongs to.
+    assert lines[-1].startswith("      ")
+
+
 def test_unmeasured_sections_are_named_rather_than_shown_as_zero(review):
     review.calendar_ok = False
     out = review.render("terminal")

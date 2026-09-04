@@ -277,7 +277,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     review_p.add_argument(
         "--all", dest="all_sections", action="store_true",
-        help="Summarize every section, not just the headline ones.",
+        help="Show every section in full, rather than the one-screen summary.",
     )
     review_p.add_argument(
         "--triage", action="store_true",
