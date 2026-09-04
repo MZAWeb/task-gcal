@@ -183,10 +183,19 @@ def test_last_reports_the_previous_period(runner):
     assert payload["period"]["in_progress"] is False
 
 
-def test_a_month_review_covers_the_month(runner):
+def test_a_month_review_covers_the_month_that_finished(runner):
     runner.run(ReviewRequest(kind="month", fmt="json"))
     payload = json.loads(runner.out)
     assert payload["period"]["kind"] == "month"
+    assert payload["period"]["start"].endswith("-08-01T00:00:00Z")
+    assert payload["period"]["in_progress"] is False
+
+
+def test_a_named_month_beats_the_default(runner):
+    from datetime import date
+
+    runner.run(ReviewRequest(kind="month", anchor=date(2026, 9, 1), fmt="json"))
+    payload = json.loads(runner.out)
     assert payload["period"]["start"].endswith("-09-01T00:00:00Z")
 
 

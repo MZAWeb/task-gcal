@@ -157,14 +157,40 @@ def review_args(*argv: str):
 
 def test_review_defaults_to_the_current_week_in_the_terminal():
     args = review_args()
-    assert (args.kind, args.last, args.fmt) == ("week", 0, "terminal")
+    assert (args.week, args.month, args.last, args.fmt) == (
+        None, None, 0, "terminal"
+    )
     assert args.sections is None
 
 
 def test_month_and_week_are_mutually_exclusive():
-    assert review_args("--month").kind == "month"
+    assert review_args("--month").month == ""
     with pytest.raises(SystemExit):
         review_args("--week", "--month")
+
+
+def test_a_period_can_be_named_instead_of_counted():
+    # Nobody should have to work out that August is three periods back.
+    from datetime import date
+
+    from task_gcal.cli import _period_choice
+
+    assert _period_choice(review_args("--month", "2026-08")) == (
+        "month", date(2026, 8, 1)
+    )
+    assert _period_choice(review_args("--week", "2026-08-17")) == (
+        "week", date(2026, 8, 17)
+    )
+    assert _period_choice(review_args("--month")) == ("month", None)
+    assert _period_choice(review_args()) == ("week", None)
+
+
+def test_a_period_that_cannot_be_read_says_what_it_wanted():
+    from task_gcal.cli import _period_choice
+
+    with pytest.raises(SystemExit) as raised:
+        _period_choice(review_args("--month", "last august"))
+    assert "2026-08" in str(raised.value)
 
 
 def test_sections_accumulate():

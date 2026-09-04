@@ -87,8 +87,10 @@ having still created and updated everything else. `--force` overrides it;
 ## Reviews
 
 ```console
-task-gcal review --week
-task-gcal review --month
+task-gcal review --week                   # the week you're in
+task-gcal review --month                  # the month that just finished
+task-gcal review --month 2026-09          # a month by name, running or not
+task-gcal review --week 2026-08-17        # the week containing that day
 task-gcal review --week --last 1          # the week before this one
 task-gcal review --week --all             # every section, in full
 task-gcal review --week --section time
@@ -100,6 +102,14 @@ task-gcal review --month --format html --open
 
 A review is a **document, not an application**: read-only,
 non-interactive, and one screen by default.
+
+The two defaults differ because the two reviews are read at different
+moments. You read a *weekly* review while you're still in the week — Friday
+afternoon, deciding what to do about Monday — so `--week` means the week
+containing today. You read a *monthly* one once the month is over, so
+`--month` means the last **complete** month. Nobody sits down on the 4th to
+reflect on four days. Either can be named outright (`--month 2026-09`,
+`--week 2026-08-17`), and `--last N` counts N further back than the default.
 
 ```text
 Week 37 · 4 of 7 days seen

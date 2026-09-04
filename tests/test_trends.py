@@ -7,6 +7,8 @@ the trend has to annotate the boundary and refuse to average across it.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from dataclasses import replace
 
 from task_gcal import journal
@@ -44,7 +46,13 @@ def completions(week: int, count: int):
 
 
 def monthly(review):
+    """A monthly review *of the month we are in*.
+
+    Named rather than counted, because `--month` on its own means the last
+    complete month — nobody reviews four days of September.
+    """
     review.kind = "month"
+    review.anchor = review.now.date()
     return review
 
 
@@ -109,7 +117,8 @@ def test_a_past_month_review_does_not_end_on_a_week_outside_it(review):
     # Ending the trend there would measure a week with real completions but
     # no blocks and no pushes, reading as a productive week that was
     # entirely missed.
-    monthly(review).offset = 1
+    # The month before the one we're in, named the way a person would.
+    monthly(review).anchor = review.now.date().replace(day=1) - timedelta(days=1)
     period = review.period()
     last = trends.series(review.facts())[-1]
 

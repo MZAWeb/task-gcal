@@ -15,7 +15,7 @@ import sys
 import tempfile
 import webbrowser
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -33,7 +33,9 @@ class ReviewRequest:
     """What the user asked for, separated from how it gets answered."""
 
     kind: str = KIND_WEEK
-    offset: int = 0  # periods back from the current one
+    offset: int = 0  # periods back from the default one
+    # A day inside the period asked for by name, if one was. Beats `offset`.
+    anchor: Optional[date] = None
     sections: tuple[str, ...] = ()  # empty means the one-screen summary
     all_sections: bool = False  # every section, in full
     fmt: str = FORMAT_TERMINAL
@@ -67,7 +69,13 @@ def run(
     """Collect, compute, render, emit. Returns a process exit code."""
     now = now or utc_now()
     tz = settings.resolve_timezone()
-    period = resolve(request.kind, tz, now=now, offset=request.offset)
+    period = resolve(
+        request.kind,
+        tz,
+        now=now,
+        offset=request.offset,
+        anchor=request.anchor,
+    )
 
     facts = collect(settings, period, now=now, gcal=gcal)
 

@@ -924,3 +924,97 @@ def test_an_unmeasured_section_reads_as_present_but_quiet(review):
     review.calendar_ok = False
     out = review.render("html", sections=("time",))
     assert 'class="card unmeasured"' in out
+
+
+# ---------------------------------------------------------------------------
+# HTML: which days the report is built on
+# ---------------------------------------------------------------------------
+
+def a_journal_run(when):
+    from task_gcal import journal
+
+    from task_gcal.config import Settings
+
+    return journal.build_record(
+        settings=Settings(timezone="UTC"),
+        mode=journal.MODE_SCHEDULE,
+        at=when,
+        placements=(),
+    )
+
+
+def test_the_header_shows_which_days_were_observed_not_only_how_many(populated):
+    # A proportion says how much is missing. Which days are missing is a
+    # different fact, and a run that stopped on Tuesday is not the same problem
+    # as a run that only happened once.
+    populated.records(a_journal_run(at(0, 12)), a_journal_run(at(2, 12)))
+    out = populated.render("html")
+    strip = out[out.index('class="days"') :]
+    strip = strip[: strip.index("</span><span>")]
+    cells = strip.count('class="day"') + strip.count('class="day seen"')
+    assert cells == 5  # one cell per day of the period
+    assert strip.count('class="day seen"') == 2
+    assert 'title="Monday 7 Sep: a run observed this day"' in strip
+    assert 'title="Tuesday 8 Sep: not observed"' in strip
+
+
+def test_the_observed_days_are_named_in_words_not_only_drawn(populated):
+    # The day cells are a glance. The rule that nothing is reachable only as a
+    # picture applies to them too, so the days are named in the basis section.
+    populated.records(a_journal_run(at(0, 12)), a_journal_run(at(2, 12)))
+    out = populated.render("html")
+    basis = out[out.index('id="basis"') :]
+    basis = basis[: basis.index("</section>")]
+    assert "Mon 7 Sep" in basis and "Wed 9 Sep" in basis
+    assert "and" in basis  # listed as prose, not as a comma-separated dump
+
+
+def test_a_fully_observed_period_does_not_list_its_days(populated):
+    # Naming all five days of a week nothing was missing from says nothing.
+    populated.records(*[a_journal_run(at(day, 12)) for day in range(5)])
+    out = populated.render("html")
+    assert "Built on all <b>5</b> days" in out
+    assert "The other days are not in the record" not in out
+
+
+def test_the_day_strip_falls_back_to_a_proportion_without_a_day_list(populated):
+    # A review that carries the count but not the days still says how much.
+    review = populated.review()
+    from dataclasses import replace
+
+    from task_gcal.review.metrics import summary_sections
+    from task_gcal.review.render import render as render_fmt
+
+    out = render_fmt(
+        replace(review, observed_days=()),
+        fmt="html",
+        sections=summary_sections(review.sections),
+        detailed=False,
+    )
+    assert 'class="meter"' in out
+    assert 'class="days"' not in out
+
+
+def test_a_period_with_nothing_observed_does_not_say_it_a_third_time(review):
+    # The header prints "0 of 5 days" and the caveats explain that no run was
+    # recorded. A third sentence naming no days is the repetition this page
+    # went to some trouble to remove.
+    out = review.render("html")
+    assert "of 5 days" in out
+    assert "not in the record" not in out
+
+
+def test_the_ledger_names_the_window_its_counts_cover(populated):
+    # The most-moved list above it counts this period; these columns count a
+    # task's whole history. The same task showing 2x in one and 5 in the other
+    # is how a reader stops trusting the page.
+    from conftest import due_moved
+
+    populated.tasks(
+        a_task(uuid="a", status="completed", end=at(1, 10), due=at(0, 9)),
+    )
+    populated.changes(due_moved("a", at(0, 12), at(0, 9), at(1, 9)))
+    out = populated.render("html", sections=("dates",), detailed=True)
+    if "Every date that moved" in out:
+        assert "Moves, all time" in out
+        assert "Days, all time" in out

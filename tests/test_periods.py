@@ -105,10 +105,28 @@ def test_a_finished_period_is_not_clamped():
     assert period.in_progress is False
 
 
-def test_resolve_finds_the_period_containing_now():
+def test_a_week_review_means_the_week_you_are_in():
+    # You read a weekly review on Friday, about the week you're still in.
     now = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
     assert resolve(KIND_WEEK, UTC, now=now).start == datetime(2026, 9, 7, tzinfo=UTC)
-    assert resolve(KIND_MONTH, UTC, now=now).start == datetime(2026, 9, 1, tzinfo=UTC)
+
+
+def test_a_month_review_means_the_month_that_finished():
+    # You read a monthly review once the month is over. Nobody sits down on
+    # the 10th to reflect on ten days.
+    now = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
+    period = resolve(KIND_MONTH, UTC, now=now)
+    assert period.start == datetime(2026, 8, 1, tzinfo=UTC)
+    assert period.in_progress is False
+
+
+def test_a_period_can_be_named_by_any_day_inside_it():
+    now = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
+    named = resolve(KIND_MONTH, UTC, now=now, anchor=date(2026, 9, 1))
+    assert named.label == "September 2026"
+    # And naming the month you're in still clamps to now rather than pretending
+    # the rest of it has happened.
+    assert named.in_progress is True
 
 
 def test_an_offset_walks_back_whole_periods():
@@ -116,8 +134,10 @@ def test_an_offset_walks_back_whole_periods():
     assert resolve(KIND_WEEK, UTC, now=now, offset=1).start == (
         datetime(2026, 8, 31, tzinfo=UTC)
     )
+    # Months count back from the month that finished, so two further back
+    # from August is June.
     assert resolve(KIND_MONTH, UTC, now=now, offset=2).start == (
-        datetime(2026, 7, 1, tzinfo=UTC)
+        datetime(2026, 6, 1, tzinfo=UTC)
     )
 
 

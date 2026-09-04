@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 import sys
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from googleapiclient.errors import HttpError
@@ -257,19 +257,25 @@ def _build_parser() -> argparse.ArgumentParser:
             "calendar and the journal; writes to none of them."
         ),
     )
+    # Both take an optional period to name, so you never have to count
+    # backwards to reach one: `--month 2026-08`, `--week 2026-08-17`.
     span = review_p.add_mutually_exclusive_group()
     span.add_argument(
-        "--week", dest="kind", action="store_const", const="week",
-        help="Report on an ISO week, Monday start (the default).",
+        "--week", dest="week", nargs="?", const="", metavar="WHEN",
+        help="Report on an ISO week, Monday start (the default). Defaults to "
+             "the week containing today; pass a date in it (2026-08-17) to "
+             "report on another.",
     )
     span.add_argument(
-        "--month", dest="kind", action="store_const", const="month",
-        help="Report on a calendar month.",
+        "--month", dest="month", nargs="?", const="", metavar="WHEN",
+        help="Report on a calendar month. Defaults to the last *complete* "
+             "month, because nobody reviews four days of September; pass "
+             "2026-09 to report on one that is still running.",
     )
     review_p.add_argument(
         "--last", type=int, default=0, metavar="N",
-        help="Report N periods back instead of the current one; "
-             "--last 1 is the previous week or month.",
+        help="Report N periods further back than the default: --last 1 is the "
+             "week before this one, or the month before last.",
     )
     review_p.add_argument(
         "--section", dest="sections", action="append", metavar="NAME",
@@ -298,7 +304,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--open", dest="open_in_browser", action="store_true",
         help="Open the rendered report in a browser (implies a file).",
     )
-    review_p.set_defaults(func=_run_review, kind="week")
+    review_p.set_defaults(func=_run_review, week=None, month=None)
 
     checkin_p = sub.add_parser(
         "checkin",
@@ -328,16 +334,40 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _period_choice(args) -> tuple[str, Optional[date]]:
+    """`(kind, anchor)` from `--week`/`--month`, either of which may name one.
+
+    A named period is any day inside it: `--month 2026-08` or the same thing
+    spelled `--month 2026-08-17`. Naming beats counting — nobody should have to
+    work out that August is three periods back.
+    """
+    kind = "month" if args.month is not None else "week"
+    raw = (args.month if kind == "month" else args.week) or ""
+    if not raw:
+        return kind, None
+    for fmt in ("%Y-%m-%d", "%Y-%m"):
+        try:
+            return kind, datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+    raise SystemExit(
+        f"Can't read {raw!r} as a date. Use 2026-08 for a month, or any day "
+        "in the period you want (2026-08-17)."
+    )
+
+
 def _run_review(args, settings) -> int:
     from pathlib import Path
 
     from .review import ReviewRequest, run
 
+    kind, anchor = _period_choice(args)
     return run(
         settings,
         ReviewRequest(
-            kind=args.kind,
+            kind=kind,
             offset=args.last,
+            anchor=anchor,
             sections=tuple(args.sections or ()),
             all_sections=args.all_sections,
             fmt=args.fmt,

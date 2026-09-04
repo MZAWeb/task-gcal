@@ -647,6 +647,10 @@ class ReviewHarness:
         self.calendar_ok = True
         self.kind = "week"
         self.offset = 0
+        # A day inside the period under test. Monthly tests set it, because the
+        # default month is the last *complete* one and most of them mean "the
+        # month we are in".
+        self.anchor = None
 
     def tasks(self, *tasks) -> "ReviewHarness":
         self._tasks = list(tasks)
@@ -695,6 +699,7 @@ class ReviewHarness:
             self.settings.resolve_timezone(),
             now=self.now,
             offset=self.offset,
+            anchor=self.anchor,
         )
 
     def facts(self):

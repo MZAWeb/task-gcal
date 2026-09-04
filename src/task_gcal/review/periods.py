@@ -123,15 +123,36 @@ def _clamped(
 
 
 def resolve(
-    kind: str, tz: tzinfo, *, now: datetime, offset: int = 0
+    kind: str,
+    tz: tzinfo,
+    *,
+    now: datetime,
+    offset: int = 0,
+    anchor: Optional[date] = None,
 ) -> Period:
-    """The week or month containing `now`, `offset` periods back."""
+    """The period to report on: `offset` periods back from the default one.
+
+    The defaults differ on purpose, because the two reviews are read at
+    different moments. You read a *week* while you're still in it — Friday
+    afternoon, deciding what to do about Monday — so the default week is the
+    one containing today. You read a *month* once it's over: nobody sits down
+    on the 4th to reflect on four days. So the default month is the last
+    complete one, and reviewing four days of September takes naming it.
+
+    `anchor` names a period outright — any day inside the one you want — and
+    then nothing is assumed at all.
+    """
+    if anchor is not None:
+        return (
+            week_of(anchor, tz, now=now)
+            if kind == KIND_WEEK
+            else month_of(anchor, tz, now=now)
+        )
     today = now.astimezone(tz).date()
-    period = (
-        week_of(today, tz, now=now)
-        if kind == KIND_WEEK
-        else month_of(today, tz, now=now)
-    )
+    if kind == KIND_WEEK:
+        period = week_of(today, tz, now=now)
+    else:
+        period = month_of(_month_shift(today.replace(day=1), -1), tz, now=now)
     if offset:
         period = period.shifted(-offset)
         # A past period is complete, so it shouldn't be clamped to `now`;

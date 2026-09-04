@@ -214,6 +214,20 @@ h1 {
   flex: none;
 }
 .meter span { display: block; height: 100%; border-radius: 3px; background: var(--series-1); }
+/* One cell per day of the period, filled where a run observed it. Deliberately
+   plain: no intensity ramp and no ordering, because this is a record of what
+   the tool saw and not a picture of how the week went. */
+.days { display: flex; gap: 3px; flex: none; align-items: flex-start; }
+.day { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.day .box {
+  display: block;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+.day.seen .box { background: var(--series-1); box-shadow: none; }
+.day-letter { font-size: 0.6rem; line-height: 1; color: var(--ink-3); }
 
 /* -------------------------------------------------------------- decision */
 .decision {
@@ -706,15 +720,7 @@ def _header(review: Review) -> str:
 
     if review.observed is not None:
         seen, total = review.observed
-        # A minimum width so that one day out of thirty is still visible — but
-        # only when there is something to show. Zero observed days draws an
-        # empty track, because a sliver of ink for nothing is a small lie.
-        share = 0 if not (total and seen) else max(4, round(100 * seen / total))
-        out.append(
-            f'<span class="meter" role="img" aria-label="'
-            f'{seen} of {total} days observed"><span style="width:{share}%">'
-            "</span></span>"
-        )
+        out.append(_observed_mark(review, seen, total))
         if seen >= total:
             out.append(f"<span>Built on all <b>{total}</b> days of the period</span>")
         else:
@@ -724,6 +730,59 @@ def _header(review: Review) -> str:
     out.append(f'<span>Generated {escape(_stamp(stamp))}</span>')
     out.append("</div></header>")
     return "".join(out)
+
+
+def _observed_mark(review: Review, seen: int, total: int) -> str:
+    """Which days the report is built on — a cell per day, filled if observed.
+
+    A proportion can only say *how much* is missing. Which days are missing is a
+    different fact and a more useful one: a run that stopped on Tuesday is not
+    the same problem as a run that only ever happened once, and the bar cannot
+    tell those apart.
+
+    Two things this is careful not to become. It is not a streak: filled cells
+    are days *a run observed*, which is a fact about the tool's own record and
+    not about the person, so there is no intensity, no ordering claim and
+    nothing to keep going. And it is not the only route to the information — the
+    days are listed in words under "what this is based on", because a strip of
+    cells is a glance, not a reading.
+    """
+    days = review.period.days()
+    if not review.observed_days or not days:
+        # No day list to draw, so say the proportion and nothing more. Zero
+        # observed draws an empty track: a sliver of ink for nothing is a lie.
+        share = 0 if not (total and seen) else max(4, round(100 * seen / total))
+        return (
+            f'<span class="meter" role="img" aria-label="{seen} of {total} '
+            f'days observed"><span style="width:{share}%"></span></span>'
+        )
+
+    observed = set(review.observed_days)
+    # Weekday initials only when there are few enough for them to be read. A
+    # month is a strip of thirty cells and thirty letters is a texture.
+    letters = len(days) <= 7
+    cells = []
+    for day in days:
+        was_seen = day.isoformat() in observed
+        klass = "day seen" if was_seen else "day"
+        title = (
+            f"{day.strftime('%A')} {day.day} {day.strftime('%b')}: "
+            + ("a run observed this day" if was_seen else "not observed")
+        )
+        cells.append(
+            f'<span class="{klass}" title="{escape(title)}">'
+            '<span class="box"></span>'
+            + (
+                f'<span class="day-letter">{escape(day.strftime("%a")[:1])}</span>'
+                if letters
+                else ""
+            )
+            + "</span>"
+        )
+    return (
+        f'<span class="days" role="img" aria-label="{seen} of {total} days '
+        f'observed">{"".join(cells)}</span>'
+    )
 
 
 def _stamp(moment: datetime) -> str:
@@ -1088,6 +1147,11 @@ def _ledger(section: Section) -> str:
     finding. The outcome column is words rather than a tick and a cross, and
     there is no colour in it: "late" is a fact about a date, and the moment it
     turns red the report is grading somebody.
+
+    The two count columns say "all time" because they are a task's whole history,
+    while the most-moved list above them counts only this period. Both are
+    right, and the same task appearing as `2x` in one and `5` in the other is
+    exactly the sort of thing that makes a reader stop trusting the page.
     """
     if section.key != deadlines_metric.KEY:
         return ""
@@ -1120,7 +1184,8 @@ def _ledger(section: Section) -> str:
         "</summary>"
         '<div class="scroll"><table class="values"><thead><tr><th>Task</th>'
         '<th class="num">First seen</th><th class="num">Ended as</th>'
-        '<th class="num">Moves</th><th class="num">Days</th>'
+        '<th class="num">Moves, all time</th>'
+        '<th class="num">Days, all time</th>'
         "<th>Finished</th></tr></thead>"
         f'<tbody>{"".join(rows)}</tbody></table></div></details>'
     )
@@ -1299,16 +1364,49 @@ def _basis(review: Review) -> str:
     every unmeasured section, because it's the answer to the only question that
     can make the rest of the page misleading.
     """
-    if not review.caveats:
+    items = [_prose(_depluralize(caveat)) for caveat in review.caveats]
+    named = _observed_in_words(review)
+    if named:
+        items.append(named)
+    if not items:
         return ""
-    items = "".join(
-        f"<li>{_prose(_depluralize(caveat))}</li>" for caveat in review.caveats
-    )
+    body = "".join(f"<li>{item}</li>" for item in items)
     return (
         '<section class="appendix" id="basis">'
         "<h2>What this is based on</h2>"
-        f"<ul>{items}</ul></section>"
+        f"<ul>{body}</ul></section>"
     )
+
+
+def _observed_in_words(review: Review) -> str:
+    """The observed days named, so the strip beside the title isn't the only copy.
+
+    The rule that no number is reachable only as a picture applies to the day
+    cells too: they are a glance, and this is the reading. Only when some days
+    are missing — naming all five days of a fully observed week says nothing.
+    """
+    days = review.period.days()
+    if not review.observed_days or not days:
+        # Nothing observed at all is already said, twice: the header prints
+        # "0 of 5 days" and the caveats explain that no run was recorded. A
+        # third sentence here would be the repetition this page went to some
+        # trouble to remove.
+        return ""
+    if len(review.observed_days) >= len(days):
+        return ""
+    observed = set(review.observed_days)
+    names = [
+        f"{day.strftime('%a')} {day.day} {day.strftime('%b')}"
+        for day in days
+        if day.isoformat() in observed
+    ]
+    if not names:
+        return ""
+    if len(names) == 1:
+        listed = names[0]
+    else:
+        listed = ", ".join(names[:-1]) + f" and {names[-1]}"
+    return escape(f"A run observed {listed}. The other days are not in the record.")
 
 
 def _appendix(sections: tuple[Section, ...]) -> str:
