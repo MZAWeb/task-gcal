@@ -324,9 +324,34 @@ that stays ours. Every real scheduling run appends one record to
 ~/.local/share/task-gcal/runs/YYYY-MM.jsonl
 ```
 
-A block can only move when the scheduler moves it, so scheduling runs are a
-complete record of block movement by construction — which is the other half
-of why no timer is needed.
+One entry per block, keyed on the Google event id — no task titles, because
+those live in the change history above. A block deleted and recreated
+elsewhere is a *new* block, which is the difference between "it moved" and
+"it was replaced".
+
+The scheduler is not the only thing that can move a block, though: you can
+drag one in your calendar. So every event we write carries a stamp of where we
+left it and what we called it, and each run compares the two. A block that
+isn't where we put it gets reported once, then adopted — re-stamped where it
+now sits and marked as *your* position, which outranks `settle_days`:
+
+```text
+Changed outside task-gcal (1):
+  (noticed once — not reported again)
+  ~ Prepare PIR (moved from Tue 08 Sep 09:00 to Tue 08 Sep 14:00 — kept)
+```
+
+Drag it and it stays dragged. It only yields if the position stops working — a
+meeting lands on it, or its deadline moves in front of it — and then the run
+says which. Renames are the exception: reported, but the task's title still
+wins, exactly as the event description warns.
+
+Blocks already in the past are left alone in both directions: not reported, not
+moved, and a still-unfinished task simply gets a fresh slot.
+
+Because the answer travels on the event, none of this needs a timer, a cron, or
+even this machine's journal — and `--section churn` can then say how often
+blocks moved and what moved them, your own edits counted separately.
 
 Three rules keep both stores honest:
 

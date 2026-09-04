@@ -16,7 +16,7 @@
 >   useful coverage before anything is allowed to reward or penalise an
 >   answer.
 >
-> Two deliberate deviations, both from using it:
+> Three deliberate deviations, all from using it:
 >
 > - §3 specifies two check-in questions, "what happened" and "why". The
 >   stored record still has both — the metrics need them apart — but the
@@ -28,6 +28,20 @@
 >   made two entry points to one interaction and gave `review` a mode that
 >   could block on questions. `task-gcal checkin && task-gcal review --week`
 >   is the same thing with nothing to explain.
+> - **The storage plan below is superseded**, and this is the big one. §"Data
+>   and metrics" assumes a journal of task snapshots on a cron (item 2 of the
+>   delivery order) plus a one-time `backfill` (item 11). Both are gone.
+>   Taskwarrior's own `operations` table already holds every field change,
+>   timestamped and exact, so it is harvested on any command that already
+>   talks to Taskwarrior — no cron, no importer, no sampling, and a due date
+>   that moved twice is two changes instead of one observation. The journal
+>   keeps only what Taskwarrior cannot know: where each block was. And the
+>   `snapshot` command is gone too — a block that moved outside a run is
+>   caught by comparing each event against a stamp we leave on it, which is
+>   exact, needs no timer, and works from another machine. What survives from
+>   the plan is every *rule* about the journal in §"Data and metrics": append
+>   only, store nothing derived, version what a metric means, coverage in the
+>   report.
 >
 > Kept as the argument for why the thing is shaped this way, which is worth
 > more than the plan was.
