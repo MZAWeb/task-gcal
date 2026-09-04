@@ -13,8 +13,10 @@ KEY = "stagnation"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "Tasks that keep getting carried forward without moving. These need a "
-    "decision from you rather than another block of time."
+    "Names tasks, not numbers: the ones where the evidence above adds up — "
+    "blocks that passed, dates that kept moving, an estimate that doubled. "
+    "The only one here that asks you to do something, and what it asks is to "
+    "decide, not to find more time."
 )
 
 _TOP = 5

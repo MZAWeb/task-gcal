@@ -25,8 +25,9 @@ KEY = "churn"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "How much the calendar got reshuffled: how often blocks moved, and "
-    "whether it was the scheduler or you doing the moving."
+    "Counts moves, before the block ever arrives: how much the calendar got "
+    "reshuffled, and whether it was the scheduler or you doing the moving. A "
+    "week can be calm here and still go badly, or churn and go fine."
 )
 
 # How many times one block has to move before it's worth naming.

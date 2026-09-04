@@ -277,8 +277,12 @@ charts, notebooks, or anything else, without any of that becoming the
 scheduler's problem), and `html`. The HTML report is a single
 self-contained file with inline SVG charts, light and dark, no
 JavaScript, and no network access at all — your task titles never leave
-the machine. It closes with a plain-language definition of every section
-it showed, so the first one you open needs nothing else to read it.
+the machine.
+
+Both `markdown` and `html` close with a plain-language definition of every
+section they showed, naming what each one counts. They're the formats you
+keep or hand to someone else, and a metric nobody can define is a metric
+nobody acts on.
 
 Bare `task-gcal` is unaffected by any of this: none of the review code is
 even imported unless you run `review`.

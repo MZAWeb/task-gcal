@@ -28,9 +28,10 @@ KEY = "deadlines"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "Which due dates you moved, how far you moved them, and whether the "
-    "work landed by the date in the end. Moving a date is not automatically "
-    "bad — it is worth seeing how often you do it."
+    "Counts due dates: which ones you moved, how far, and whether the work "
+    "landed by the date in the end. Independent of the calendar — a task with "
+    "no time set aside can still miss its date. Moving a date is not "
+    "automatically bad; how often you do it is the interesting part."
 )
 
 # A task pushed this many times has stopped being a deadline and become a

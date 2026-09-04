@@ -197,6 +197,23 @@ def test_markdown_carries_the_coverage_section(populated):
     assert "## Coverage" in populated.render("markdown")
 
 
+def test_markdown_explains_every_section_it_shows(populated):
+    # A saved note is the format you hand to someone else, so it needs the
+    # definitions more than a screen you read once does.
+    from task_gcal.review.metrics import glossary
+
+    out = populated.render("markdown")
+    assert "## What these mean" in out
+    for section in populated.review().sections:
+        if f"**{section.label}**" in out:
+            assert glossary()[section.key] in out
+
+
+def test_the_markdown_glossary_comes_last(populated):
+    out = populated.render("markdown")
+    assert out.index("## What these mean") > out.index("## Coverage")
+
+
 # ---------------------------------------------------------------------------
 # JSON
 # ---------------------------------------------------------------------------

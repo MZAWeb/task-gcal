@@ -7,6 +7,7 @@ exists to fix that, not to say more.
 
 from __future__ import annotations
 
+from ..metrics import glossary
 from ..model import Review, Section
 
 
@@ -37,7 +38,32 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
             lines.append(f"- {_escape(caveat)}")
         lines.append("")
 
+    lines.extend(_glossary(sections))
+
     return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def _glossary(sections: tuple[Section, ...]) -> list[str]:
+    """Plain-language definitions, at the foot of the note.
+
+    A saved note outlives the context you wrote it in, and it's the format you
+    hand to somebody else — so it needs the definitions even more than the
+    screen you read once does.
+    """
+    meanings = glossary()
+    defined = [(s.label, meanings[s.key]) for s in sections if s.key in meanings]
+    if not defined:
+        return []
+    out = ["## What these mean", ""]
+    for label, means in defined:
+        out.append(f"- **{label}** — {_escape(means)}")
+    out.append("")
+    out.append(
+        "*Anything marked not measured isn't known for this period, rather "
+        "than zero.*"
+    )
+    out.append("")
+    return out
 
 
 def _detail(section: Section) -> list[str]:

@@ -9,8 +9,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-import pytest
-
 from task_gcal.config import Settings
 from task_gcal.scheduler import find_earliest_slot
 
