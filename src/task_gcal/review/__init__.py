@@ -51,6 +51,9 @@ def build(facts: Facts) -> Review:
         sections=metrics.build_sections(facts),
         caveats=caveats_mod.build(facts),
         observed=(len(facts.observed_days()), len(facts.period.days())),
+        observed_days=tuple(
+            day.isoformat() for day in sorted(facts.observed_days())
+        ),
     )
 
 

@@ -70,8 +70,9 @@ def build(facts) -> Section:
     worst = entries[0]
     others = len(entries) - 1
     also = (
-        f" ({others} other task{'' if others == 1 else 's'} show the same "
-        "pattern — `--section stuck` lists them.)"
+        f" ({others} other task{'' if others == 1 else 's'} "
+        f"show{'s' if others == 1 else ''} the same pattern — "
+        "`--section stuck` lists them.)"
         if others
         else ""
     )

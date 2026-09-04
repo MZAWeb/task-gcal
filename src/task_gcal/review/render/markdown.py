@@ -32,7 +32,7 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
         lines.append("")
 
     if detailed:
-        where = groups()
+        where = groups(review.period.kind)
         group = None
         for section in sections:
             if where.get(section.key) != group:

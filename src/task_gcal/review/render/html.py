@@ -622,7 +622,7 @@ _CELL = "\x00"
 
 
 def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> str:
-    where = groups()
+    where = groups(review.period.kind)
     rail = _rail(sections, where) if len(sections) >= 4 else ""
     body = [
         _header(review),

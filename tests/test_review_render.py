@@ -698,7 +698,10 @@ def test_the_page_opens_with_the_one_decision(populated):
     body = populated.render("html")
     body = body[body.index("<main>") :]
     assert "One thing to decide" in body
-    assert body.index("One thing to decide") < body.index("The week you had")
+    from task_gcal.review.metrics import GROUP_WEEK
+
+    first_group = GROUP_WEEK.format(kind="week")
+    assert body.index("One thing to decide") < body.index(first_group)
 
 
 def test_the_decision_points_at_the_tasks_behind_it(populated):

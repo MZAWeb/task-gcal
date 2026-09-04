@@ -82,7 +82,8 @@ def build(facts) -> Section:
         # A recurring chore ticked off is real work, but a count made mostly
         # of them says something different from one made of new work.
         detail.append(
-            f"Of those, {recurring} were recurring task(s)"
+            f"Of those, {recurring} "
+            + ("was a recurring task" if recurring == 1 else "were recurring tasks")
         )
     if by_project:
         detail.append("By project:")

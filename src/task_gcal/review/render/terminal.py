@@ -30,7 +30,7 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
     # Headings only in the detailed views. On the one-screen summary they'd
     # cost a third of the budget to organise seven lines that already read in
     # order.
-    where = groups() if detailed else {}
+    where = groups(review.period.kind) if detailed else {}
     group = None
     for section in shown:
         if detailed and where.get(section.key) != group:

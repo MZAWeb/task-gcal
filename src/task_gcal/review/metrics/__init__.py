@@ -50,7 +50,10 @@ SectionBuilder = Callable[[object], Section]
 # reader has four questions. He has two — did the time I set aside get used,
 # and do my dates mean anything — so the blocks live together and the dates
 # live together, and where they add up per task is somewhere else again.
-GROUP_WEEK = "The week you had"
+# `{kind}` is filled in with the period being reported, because "The week you
+# had" over a monthly review is the kind of detail that tells a reader nobody
+# was looking.
+GROUP_WEEK = "The {kind} you had"
 GROUP_BLOCKS = "Time you set aside"
 GROUP_DATES = "Dates you set"
 GROUP_SAID = "What you told me"
@@ -125,9 +128,11 @@ def glossary() -> dict[str, str]:
     return {metric.key: metric.means for metric in _METRICS}
 
 
-def groups() -> dict[str, str]:
+def groups(kind: str = "period") -> dict[str, str]:
     """Which group each section belongs to, keyed by section name."""
-    return {metric.key: metric.group for metric in _METRICS}
+    return {
+        metric.key: metric.group.format(kind=kind) for metric in _METRICS
+    }
 
 
 def summary_sections(

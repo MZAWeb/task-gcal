@@ -101,7 +101,7 @@ def build(facts) -> Section:
 
     detail = [
         f"Deadline pushes    {push_count} across {len(pushed)} task(s), "
-        f"{days:.0f} day(s) total",
+        f"longest {longest:.0f} day(s)",
         f"  after the old date {reactive} (a miss being reported)",
         f"  before it          {push_count - reactive} (a commitment being "
         "renegotiated)",

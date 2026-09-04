@@ -736,7 +736,7 @@ def test_recurring_completions_are_reported_separately(review):
 
     assert section.data["completed"] == 2
     assert section.data["recurring"] == 1
-    assert "1 were recurring" in "\n".join(section.detail)
+    assert "1 was a recurring task" in "\n".join(section.detail)
 
 
 def test_a_normal_task_is_not_treated_as_recurring(review):

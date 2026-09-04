@@ -105,7 +105,7 @@ def build(facts) -> Section:
     if worst_hour:
         hour, count = worst_hour.most_common(1)[0]
         detail.append(
-            f"Worst hour        {hour:02d}:00 — {count} block(s) passed "
+            f"Most common hour  {hour:02d}:00 — {count} block(s) passed "
             "with the task still open"
         )
 

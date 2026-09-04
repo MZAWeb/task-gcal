@@ -123,6 +123,10 @@ class Review:
     # how much of the week this is built on before reading any of it, not
     # after.
     observed: Optional[tuple[int, int]] = None
+    # *Which* local days were observed, ISO, oldest first. A proportion can only
+    # say how much is missing; the days say which — and "the journal stopped
+    # running on Tuesday" is a different problem from "I only ran it once".
+    observed_days: tuple[str, ...] = ()
 
     def section(self, key: str) -> Optional[Section]:
         for s in self.sections:

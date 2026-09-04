@@ -99,7 +99,7 @@ def series_for_display(section_data: dict) -> list[tuple[str, list, str]]:
     return [
         ("Completed", [float(w["completed"]) for w in weeks], ""),
         (
-            "Follow-through",
+            "Blocks ending with it done",
             [
                 round(w["blocks_honored"] / w["blocks_ended"] * 100)
                 if w["blocks_ended"]

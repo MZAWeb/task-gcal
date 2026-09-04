@@ -33,6 +33,7 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
         # [observed, total] days. A consumer plotting any of this needs to know
         # how much of the period was seen as badly as a reader does.
         "observed": list(review.observed) if review.observed else None,
+        "observed_days": list(review.observed_days),
         "caveats": list(review.caveats),
         "sections": [_section(s, detailed=detailed) for s in sections],
     }
