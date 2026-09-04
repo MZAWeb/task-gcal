@@ -62,10 +62,13 @@ def build(facts) -> Section:
 
     previous_count, comparison = _previous(facts)
 
-    summary = f"{len(completed)} tasks · {humanize_minutes(planned)} planned"
+    # The comparison as the count it was, not as a delta: "+2" is a score,
+    # "5 by this point last week" is a fact you can disagree with.
+    summary = f"{len(completed)} task{'' if len(completed) == 1 else 's'}"
     if previous_count:
-        change = len(completed) - previous_count
-        summary += f" · {change:+d} vs {comparison}"
+        summary += f" ({previous_count} by the {comparison})"
+    if planned:
+        summary += f", {humanize_minutes(planned)} of estimates"
 
     by_project = Counter(t.project or "(no project)" for t in completed)
     recurring = sum(1 for t in completed if t.is_recurring)

@@ -57,11 +57,16 @@ def build_flow(facts) -> Section:
     deleted = facts.deleted_in_period()
     net = len(created) - len(completed) - len(deleted)
 
-    # Plain counts: the verb already carries the direction, and a signed
-    # zero ("+0 deleted") reads as a typo.
+    # One sentence about the size of the list, because that's the only thing
+    # anyone does anything about. Deletions appear only when there were some:
+    # a confident "0 deleted" next to a rule that says missing is never zero
+    # teaches the reader to read zeros as nothing-happened, and one of those
+    # two zeros means something else.
+    grew = "longer" if net >= 0 else "shorter"
     summary = (
-        f"{len(created)} created · {len(completed)} completed · "
-        f"{len(deleted)} deleted · net {net:+d}"
+        f"{len(created)} new, {len(completed)} done"
+        + (f", {len(deleted)} dropped" if deleted else "")
+        + f" — the list is {abs(net)} {grew}"
     )
     detail = (
         f"Created           {len(created)}",

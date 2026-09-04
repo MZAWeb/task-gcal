@@ -102,7 +102,7 @@ def test_the_default_terminal_report_fits_one_screen(populated):
     assert len(lines) <= 24, "\n".join(lines)
 
 
-def test_the_terminal_summary_is_one_line_per_section(populated):
+def test_every_section_starts_a_line_of_its_own_in_the_column(populated):
     from task_gcal.review.metrics import summary_sections
 
     out = populated.render("terminal")
@@ -110,7 +110,12 @@ def test_the_terminal_summary_is_one_line_per_section(populated):
     shown = [
         s for s in summary_sections(populated.review().sections) if s.measured
     ]
-    assert len(body) == len(shown)
+    # A summary is a sentence now, so a long one wraps under its own label —
+    # but every section still begins a line, and no other line does.
+    starts = [line for line in body if line[:1].strip()]
+    assert len(starts) == len(shown)
+    for section, line in zip(shown, starts):
+        assert line.startswith(section.label)
 
 
 def test_an_unmeasurable_section_is_named_rather_than_given_a_line(populated):

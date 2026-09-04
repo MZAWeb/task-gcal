@@ -27,7 +27,7 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
         sections if detailed else tuple(s for s in sections if s.measured)
     )
     for section in shown:
-        lines.append(_summary_line(section))
+        lines.extend(_summary_lines(section))
         if detailed:
             lines.extend(_detail_block(section))
 
@@ -50,9 +50,17 @@ def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> 
     return "\n".join(lines) + "\n"
 
 
-def _summary_line(section: Section) -> str:
+def _summary_lines(section: Section) -> list[str]:
+    """The label column, then a sentence that wraps under itself.
+
+    Summaries are sentences now rather than middot-separated numbers, so they
+    can run past the terminal. Wrapping into the column keeps the label
+    scannable while letting the line read like something a person wrote.
+    """
     label = section.label[:_LABEL_WIDTH].ljust(_LABEL_WIDTH)
-    return f"{label}{section.summary}"
+    return _wrap(
+        section.summary, indent=label, subsequent=" " * _LABEL_WIDTH
+    )
 
 
 def _sparklines(section: Section) -> list[str]:

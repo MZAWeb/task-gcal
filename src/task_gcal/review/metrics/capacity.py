@@ -39,8 +39,8 @@ def build(facts) -> Section:
         return Section(
             key=KEY,
             label="Time",
-            summary=f"{humanize_minutes(available)} of working hours; "
-                    "meetings not measured",
+            summary=f"{humanize_minutes(available)} of working hours — "
+                    "couldn't read the calendar, so meetings are unknown",
             measured=False,
             data={"available_minutes": available},
         )
@@ -61,11 +61,13 @@ def build(facts) -> Section:
     # part is comparable with the working-hours denominator.
     planned_in_hours = total_minutes(clip_to_windows(ours, windows))
     schedulable = max(available - meeting_minutes, 0)
-
+    # A sentence, not three numbers separated by middots. The subtraction is
+    # the finding — "two thirds of the week was already gone" is what a person
+    # takes from this line — and three co-equal numbers hide it.
     summary = (
-        f"{humanize_minutes(available)} available · "
-        f"{humanize_minutes(meeting_minutes)} meetings · "
-        f"{humanize_minutes(planned_minutes)} planned"
+        f"{humanize_minutes(available)} working, "
+        f"{humanize_minutes(meeting_minutes)} in meetings, "
+        f"{humanize_minutes(schedulable)} left"
     )
 
     share = meeting_minutes / available if available else 0.0

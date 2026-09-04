@@ -78,9 +78,20 @@ def build(facts) -> Section:
         )
 
     rate = len(honored) / len(ended)
-    summary = f"{len(honored)} of {len(ended)} blocks honoured"
+    # "Honoured" is a promise-keeping word, and the label was doing the
+    # moralising rather than the number. Saying what happened to the others
+    # removes the need for a rate as well: "15 still open" and "(12%)" carry
+    # the same information, and only one of them reads as a grade.
+    summary = (
+        f"{len(ended)} block{'' if len(ended) == 1 else 's'} came and went. "
+        f"{len(honored)} ended with the task done"
+    )
+    summary += f", {len(passed_open)} are still open." if passed_open else "."
     if off_plan:
-        summary += f" · {len(off_plan)} completed off-plan"
+        summary += (
+            f" {len(off_plan)} task{'' if len(off_plan) == 1 else 's'} "
+            "finished with no block at all."
+        )
 
     worst_hour = Counter(
         block.start.astimezone(facts.period.tz).hour for block in passed_open

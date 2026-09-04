@@ -76,7 +76,8 @@ def test_capacity_says_so_when_the_calendar_could_not_be_read(review):
     section = data(review, capacity.KEY)
 
     assert section.measured is False
-    assert "not measured" in section.summary
+    assert "unknown" in section.summary
+    assert "couldn't read the calendar" in section.summary
 
 
 def test_a_meeting_heavy_week_becomes_the_closing_suggestion(review):
@@ -160,8 +161,12 @@ def test_throughput_sums_estimates_and_never_calls_them_time_spent(review):
     section = data(review, throughput.KEY)
 
     assert section.data["planned_minutes"] == 150
-    assert "planned" in section.summary
+    # "of estimates" rather than "planned" or anything resembling time spent:
+    # the number is what you said it would take, and it must not read as what
+    # it took.
+    assert "2h30 of estimates" in section.summary
     assert "worked" not in section.summary.lower()
+    assert "spent" not in section.summary.lower()
     assert any("not time spent" in line for line in section.detail)
 
 
@@ -185,7 +190,8 @@ def test_throughput_compares_with_the_previous_period(review):
     section = data(review, throughput.KEY)
 
     assert section.data["previous_completed"] == 2
-    assert "-1 vs same point last week" in section.summary
+    # The count, not a delta: "-1" is a score, "2 by this point" is a fact.
+    assert "2 by the same point last week" in section.summary
 
 
 def test_a_part_finished_week_is_compared_with_the_same_stretch(review):
@@ -213,7 +219,7 @@ def test_a_finished_period_is_compared_with_the_whole_previous_one(review):
     section = data(review, throughput.KEY)
 
     assert section.data["previous_completed"] == 2
-    assert "vs previous week" in section.summary
+    assert "2 by the previous week" in section.summary
 
 
 def test_throughput_breaks_down_by_project(review):
@@ -348,7 +354,7 @@ def test_work_with_no_block_is_reported_as_off_plan(review):
     section = data(review, followthrough.KEY)
 
     assert section.data["off_plan"] == 1
-    assert "1 completed off-plan" in section.summary
+    assert "1 task finished with no block at all" in section.summary
 
 
 def test_the_worst_hour_is_reported(review):

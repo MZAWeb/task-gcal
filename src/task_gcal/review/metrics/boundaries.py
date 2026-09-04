@@ -197,16 +197,21 @@ def build(facts) -> Section:
     pieces = []
     if evenings:
         pieces.append(
-            f"{len(evenings)} evening(s) ({humanize_minutes(evening_minutes)})"
+            f"{humanize_minutes(evening_minutes)} on "
+            f"{len(evenings)} evening{'' if len(evenings) == 1 else 's'}"
         )
     if weekend_days:
         pieces.append(
-            f"{len(weekend_days)} weekend day(s) "
-            f"({humanize_minutes(weekend_minutes)})"
+            f"{humanize_minutes(weekend_minutes)} on "
+            f"{len(weekend_days)} weekend day{'' if len(weekend_days) == 1 else 's'}"
         )
     if not pieces and outside_minutes:
-        pieces.append(f"{humanize_minutes(outside_minutes)} outside hours")
-    summary = " · ".join(pieces) or "no time claimed outside working hours"
+        pieces.append(f"{humanize_minutes(outside_minutes)} outside your hours")
+    summary = ", ".join(pieces) or "nothing outside your working hours"
+    # One evening is a Tuesday, not a pattern, and this is the section with the
+    # most built-in moral edge — so it gets the highest bar before it speaks.
+    if outside_minutes and len(evenings) + len(weekend_days) < 2:
+        summary += " — one-off, not a pattern"
 
     detail = [
         f"Claimed outside hours  {humanize_minutes(outside_minutes)}",

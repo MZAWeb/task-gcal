@@ -80,15 +80,24 @@ def build(facts) -> Section:
             data={},
         )
 
+    # The largest single push, not the total. A sum of pushes across unrelated
+    # tasks is a number nobody has experienced; "you moved something by six
+    # weeks" is a sentence about a real event.
+    longest = max(
+        (c.days for changes in pushed.values() for c in changes), default=0.0
+    )
     summary_parts = []
     if push_count:
-        summary_parts.append(
-            f"{push_count} push(es) across {len(pushed)} task(s)"
-        )
-        summary_parts.append(f"{days:.0f} days")
+        moved = f"{len(pushed)} task{'' if len(pushed) == 1 else 's'} moved a due date"
+        if push_count > len(pushed):
+            moved += f", {push_count} times between them"
+        summary_parts.append(f"{moved}, the longest by {longest:.0f} days.")
     if with_due:
-        summary_parts.append(f"{len(met_final)}/{len(with_due)} met the final date")
-    summary = " · ".join(summary_parts) or "no deadlines moved or met"
+        summary_parts.append(
+            f"Of the {len(with_due)} finished with a date, "
+            f"{len(met_final)} landed on it."
+        )
+    summary = " ".join(summary_parts) or "no dates moved, and none were met"
 
     detail = [
         f"Deadline pushes    {push_count} across {len(pushed)} task(s), "
