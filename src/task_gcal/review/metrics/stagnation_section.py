@@ -7,7 +7,6 @@ consumes the same entries and turns them into commands.
 from __future__ import annotations
 
 from ..model import Coverage, Section, Suggestion
-from ..observed import build_timelines
 from ..stagnation import find
 
 KEY = "stagnation"
@@ -16,7 +15,7 @@ _TOP = 5
 
 
 def build(facts) -> Section:
-    timelines = build_timelines(facts.journal.records)
+    timelines = facts.timelines
     entries = find(
         list(facts.tasks),
         timelines=timelines,

@@ -54,7 +54,6 @@ from .reflections import (
 )
 from .review.episodes import DEFAULT_SINCE_DAYS, Episode, find_unresolved
 from .review.facts import collect
-from .review.observed import build_timelines
 from .review.periods import Period
 
 
@@ -222,7 +221,7 @@ def open_episodes(facts, *, since: datetime, now: datetime) -> list[Episode]:
     return find_unresolved(
         tasks=list(facts.tasks),
         blocks_by_task=facts.blocks_by_task(),
-        timelines=build_timelines(facts.journal.records),
+        timelines=facts.timelines,
         answers=reflections_mod.load(),
         now=now,
         since=since,

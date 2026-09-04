@@ -25,7 +25,6 @@ from typing import Optional
 from ...intervals import humanize_minutes
 from ...journal import MODE_BACKFILL
 from ..model import Coverage, Section
-from ..observed import build_timelines
 from ..periods import KIND_MONTH, week_of
 
 KEY = "trends"
@@ -256,7 +255,7 @@ def series(facts, *, weeks: Optional[int] = None) -> list[WeekPoint]:
     anchor = _anchor(facts.period)
     windows = [anchor.shifted(-(weeks - 1 - n)) for n in range(weeks)]
 
-    timelines = build_timelines(facts.journal.records)
+    timelines = facts.timelines
     latest_hash = _latest_hash(facts)
 
     points: list[WeekPoint] = []

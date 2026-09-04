@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from ...intervals import humanize_minutes
 from ..model import Coverage, Section, Suggestion
-from ..observed import build_timelines
 
 KEY = "scope"
 
@@ -20,14 +19,13 @@ _BALLOONED = 2.0
 
 def build(facts) -> Section:
     window = (facts.period.start, facts.period.end)
-    timelines = build_timelines(facts.journal.records)
-    in_period = facts.records_in_period()
+    timelines = facts.timelines
 
-    if not in_period:
+    if facts.changes.earliest is None:
         return Section(
             key=KEY,
             label="Scope",
-            summary="no observations for this period",
+            summary="no change history for this period",
             measured=False,
             data={},
         )
@@ -96,9 +94,9 @@ def build(facts) -> Section:
         detail=tuple(detail),
         coverage=(
             Coverage(
-                label="days of the period the journal observed",
-                observed=len(facts.observed_days()),
-                total=len(facts.period.days()),
+                label="the period is covered by harvested change history",
+                observed=1 if facts.change_history_reaches_period() else 0,
+                total=1,
             ),
         ),
         data={

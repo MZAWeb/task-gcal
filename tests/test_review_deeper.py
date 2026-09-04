@@ -21,10 +21,17 @@ from task_gcal.review.metrics import (
     scope,
     stagnation_section,
 )
-from task_gcal.review.observed import build_timelines
 from task_gcal.review.stagnation import find, prescribe
 
-from conftest import NOW, a_block, a_task, at
+from conftest import (
+    NOW,
+    a_block,
+    a_field_change,
+    a_task,
+    at,
+    due_moved,
+    estimate_changed,
+)
 
 SETTINGS = Settings(timezone="UTC")
 FRIDAY = NOW + timedelta(days=4, hours=6)
@@ -51,10 +58,7 @@ def data(review, key):
 
 def test_a_push_is_counted_and_measured_in_days(review):
     review.tasks(a_task(uuid="a", due=at(4, 17)))
-    review.records(
-        snapshot(at(0, 9), a_task(uuid="a", due=at(1, 17))),
-        snapshot(at(1, 9), a_task(uuid="a", due=at(4, 17))),
-    )
+    review.changes(due_moved("a", at(1, 9), at(1, 17), at(4, 17)))
     section = data(review, deadlines.KEY)
 
     assert section.data["observed_pushes"] == 1
@@ -62,22 +66,25 @@ def test_a_push_is_counted_and_measured_in_days(review):
     assert section.data["days_pushed"] == 3.0
 
 
-def test_pushes_are_always_described_as_observed(review):
+def test_the_period_coverage_of_the_change_history_is_reported(review):
+    # The numbers are exact now, so what needs saying is *reach*: whether the
+    # harvested history actually covers the period being reported on.
     review.tasks(a_task(uuid="a", due=at(4, 17)))
-    review.records(
-        snapshot(at(0, 9), a_task(uuid="a", due=at(1, 17))),
-        snapshot(at(1, 9), a_task(uuid="a", due=at(4, 17))),
-    )
-    assert "observed" in data(review, deadlines.KEY).summary
+    review.changes(due_moved("a", at(1, 9), at(1, 17), at(4, 17)))
+    (_due, coverage) = data(review, deadlines.KEY).coverage
+
+    assert "harvested change history" in coverage.label
+    assert coverage.observed == 0  # history starts mid-period here
+    assert "starts" in "\n".join(data(review, deadlines.KEY).detail)
 
 
 def test_reactive_and_proactive_pushes_are_separated(review):
     review.tasks(a_task(uuid="late", due=at(4, 17)), a_task(uuid="early", due=at(6, 17)))
-    review.records(
-        snapshot(at(0, 9), a_task(uuid="late", due=at(0, 17)),
-                 a_task(uuid="early", due=at(4, 17))),
-        snapshot(at(2, 9), a_task(uuid="late", due=at(4, 17)),
-                 a_task(uuid="early", due=at(6, 17))),
+    review.changes(
+        # Monday's deadline moved on Wednesday: a miss being reported.
+        due_moved("late", at(2, 9), at(0, 17), at(4, 17)),
+        # Friday's deadline moved on Monday: a commitment renegotiated.
+        due_moved("early", at(0, 9), at(4, 17), at(6, 17)),
     )
     section = data(review, deadlines.KEY)
 
@@ -94,10 +101,7 @@ def test_the_ledger_separates_the_original_promise_from_the_final_one(review):
     review.tasks(
         a_task(uuid="a", status="completed", due=at(4, 17), end=at(3, 16))
     )
-    review.records(
-        snapshot(at(0, 9), a_task(uuid="a", due=at(1, 17))),
-        snapshot(at(1, 9), a_task(uuid="a", due=at(4, 17))),
-    )
+    review.changes(due_moved("a", at(1, 9), at(1, 17), at(4, 17)))
     section = data(review, deadlines.KEY)
 
     assert section.data["met_final"] == 1
@@ -110,7 +114,12 @@ def test_being_late_on_a_date_that_never_moved_is_counted(review):
     review.tasks(
         a_task(uuid="a", status="completed", due=at(1, 17), end=at(3, 16))
     )
-    review.records(snapshot(at(0, 9), a_task(uuid="a", due=at(1, 17))))
+    # Some history exists, but none of it is a push for this task, so its
+    # date genuinely never moved.
+    review.changes(
+        a_field_change(at=at(0, 9), uuid="a", field="description",
+                       old="old name", new="a task"),
+    )
     section = data(review, deadlines.KEY)
 
     assert section.data["late_on_unchanged_date"] == 1
@@ -119,11 +128,12 @@ def test_being_late_on_a_date_that_never_moved_is_counted(review):
 
 def test_a_third_push_becomes_the_reviews_closing_line(review):
     review.tasks(a_task(uuid="a", description="Prepare PIR", due=at(6, 17)))
-    review.records(
-        snapshot(at(0, 9), a_task(uuid="a", description="Prepare PIR", due=at(0, 17))),
-        snapshot(at(1, 9), a_task(uuid="a", description="Prepare PIR", due=at(1, 17))),
-        snapshot(at(2, 9), a_task(uuid="a", description="Prepare PIR", due=at(2, 17))),
-        snapshot(at(3, 9), a_task(uuid="a", description="Prepare PIR", due=at(6, 17))),
+    review.changes(
+        a_field_change(at=at(0, 8), uuid="a", field="description",
+                       old=None, new="Prepare PIR"),
+        due_moved("a", at(1, 9), at(0, 17), at(1, 17)),
+        due_moved("a", at(2, 9), at(1, 17), at(2, 17)),
+        due_moved("a", at(3, 9), at(2, 17), at(6, 17)),
     )
     adjustment = review.review().adjustment
     assert "Prepare PIR" in adjustment
@@ -135,13 +145,18 @@ def test_deadlines_are_unmeasured_without_any_history(review):
     assert data(review, deadlines.KEY).measured is False
 
 
+def test_no_change_history_says_how_to_get_some(review):
+    review.tasks(a_task(uuid="a", status="completed", due=at(4, 17), end=at(3, 16)))
+    assert "backfill" in "\n".join(data(review, deadlines.KEY).detail)
+
+
 def test_a_task_with_no_journal_history_falls_back_to_its_current_date(review):
     # With nothing observed, the only promise we know about is the current
     # one — claiming the original was missed would be inventing history.
     review.tasks(
         a_task(uuid="a", status="completed", due=at(4, 17), end=at(3, 16))
     )
-    review.records(snapshot(at(0, 9), a_task(uuid="b")))
+    review.changes(due_moved("b", at(0, 9), at(1, 17), at(2, 17)))
     section = data(review, deadlines.KEY)
     assert section.data["met_original"] == 1
 
@@ -208,9 +223,10 @@ def test_a_real_sample_of_stretched_tasks_does(review):
 
 def test_an_estimate_doubling_is_reported_as_a_project(review):
     review.tasks(a_task(uuid="a", description="Analyze peakon", estimate=240))
-    review.records(
-        snapshot(at(0, 9), a_task(uuid="a", description="Analyze peakon", estimate=60)),
-        snapshot(at(1, 9), a_task(uuid="a", description="Analyze peakon", estimate=240)),
+    review.changes(
+        a_field_change(at=at(-1, 9), uuid="a", field="description",
+                       old=None, new="Analyze peakon"),
+        estimate_changed("a", at(1, 9), 60, 240),
     )
     section = data(review, scope.KEY)
 
@@ -223,9 +239,9 @@ def test_an_estimate_doubling_is_reported_as_a_project(review):
 
 def test_deferral_is_reported_apart_from_deadline_churn(review):
     review.tasks(a_task(uuid="a", scheduled=at(4, 9)))
-    review.records(
-        snapshot(at(0, 9), a_task(uuid="a", scheduled=at(1, 9))),
-        snapshot(at(1, 9), a_task(uuid="a", scheduled=at(4, 9))),
+    review.changes(
+        a_field_change(at=at(1, 9), uuid="a", field="scheduled",
+                       old=at(1, 9), new=at(4, 9)),
     )
     section = data(review, scope.KEY)
 
@@ -500,7 +516,7 @@ def stagnant_for(review):
     facts = review.facts()
     return find(
         list(facts.tasks),
-        timelines=build_timelines(facts.journal.records),
+        timelines=facts.timelines,
         blocks_by_task=facts.blocks_by_task(),
         now=facts.now,
     )
@@ -508,11 +524,10 @@ def stagnant_for(review):
 
 def test_repeated_pushes_make_a_task_stagnant(review):
     review.tasks(a_task(uuid="a", due=at(6, 17)))
-    review.records(
-        snapshot(at(0, 9), a_task(uuid="a", due=at(0, 17))),
-        snapshot(at(1, 9), a_task(uuid="a", due=at(1, 17))),
-        snapshot(at(2, 9), a_task(uuid="a", due=at(2, 17))),
-        snapshot(at(3, 9), a_task(uuid="a", due=at(6, 17))),
+    review.changes(
+        due_moved("a", at(1, 9), at(0, 17), at(1, 17)),
+        due_moved("a", at(2, 9), at(1, 17), at(2, 17)),
+        due_moved("a", at(3, 9), at(2, 17), at(6, 17)),
     )
     (entry,) = stagnant_for(review)
     assert entry.pushes == 3
@@ -561,11 +576,10 @@ def test_triage_prints_commands_and_changes_nothing(review):
 
 def test_triage_suggests_waiting_only_for_a_repeatedly_pushed_task(review):
     review.tasks(a_task(uuid="a", id=40, due=at(6, 17)))
-    review.records(
-        snapshot(at(0, 9), a_task(uuid="a", due=at(0, 17))),
-        snapshot(at(1, 9), a_task(uuid="a", due=at(1, 17))),
-        snapshot(at(2, 9), a_task(uuid="a", due=at(2, 17))),
-        snapshot(at(3, 9), a_task(uuid="a", due=at(6, 17))),
+    review.changes(
+        due_moved("a", at(1, 9), at(0, 17), at(1, 17)),
+        due_moved("a", at(2, 9), at(1, 17), at(2, 17)),
+        due_moved("a", at(3, 9), at(2, 17), at(6, 17)),
     )
     assert "modify wait:someday" in triage.render(review.facts())
 

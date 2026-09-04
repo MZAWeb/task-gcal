@@ -21,7 +21,7 @@ from task_gcal.review.episodes import (
 )
 from task_gcal.review.observed import build_timelines
 
-from conftest import NOW, a_block, a_task, at
+from conftest import NOW, a_block, a_task, at, due_moved
 
 SETTINGS = Settings(timezone="UTC")
 TZ = SETTINGS.resolve_timezone()
@@ -37,26 +37,13 @@ def blocks_by(*blocks):
     return out
 
 
-def timelines_from(*records):
-    return build_timelines(records)
-
-
-def snapshot(when, *tasks):
-    return journal.build_record(
-        settings=SETTINGS,
-        mode=journal.MODE_SNAPSHOT,
-        at=when,
-        observations=journal.observe_tasks(list(tasks), blocks={}, detail="full"),
-    )
-
-
 def episodes(
-    *, tasks, blocks=(), records=(), answers=None, now=FRIDAY, since=None
+    *, tasks, blocks=(), changes=(), answers=None, now=FRIDAY, since=None
 ):
     return find_unresolved(
         tasks=list(tasks),
         blocks_by_task=blocks_by(*blocks),
-        timelines=timelines_from(*records),
+        timelines=build_timelines(changes),
         answers=answers or {},
         now=now,
         since=since or (NOW - timedelta(days=14)),
@@ -99,10 +86,7 @@ def test_a_block_that_has_not_ended_yet_is_not():
 def test_a_reactive_deadline_push_is_evidence():
     (episode,) = episodes(
         tasks=[a_task(uuid="a", due=at(4, 17))],
-        records=[
-            snapshot(at(0, 9), a_task(uuid="a", due=at(0, 17))),
-            snapshot(at(2, 9), a_task(uuid="a", due=at(4, 17))),
-        ],
+        changes=[due_moved("a", at(2, 9), at(0, 17), at(4, 17))],
     )
     (evidence,) = episode.evidence
     assert evidence.kind == KIND_DEADLINE_PUSHED
@@ -113,10 +97,7 @@ def test_a_deadline_push_alone_does_not_claim_no_work_happened():
     # happened." The wording has to leave that open.
     (episode,) = episodes(
         tasks=[a_task(uuid="a", due=at(4, 17))],
-        records=[
-            snapshot(at(0, 9), a_task(uuid="a", due=at(0, 17))),
-            snapshot(at(2, 9), a_task(uuid="a", due=at(4, 17))),
-        ],
+        changes=[due_moved("a", at(2, 9), at(0, 17), at(4, 17))],
     )
     assert episode.suggestion == (
         "deadline moved; work may or may not have happened"
@@ -128,10 +109,7 @@ def test_a_proactive_push_is_not_evidence_of_a_miss():
     assert (
         episodes(
             tasks=[a_task(uuid="a", due=at(6, 17))],
-            records=[
-                snapshot(at(0, 9), a_task(uuid="a", due=at(4, 17))),
-                snapshot(at(0, 18), a_task(uuid="a", due=at(6, 17))),
-            ],
+            changes=[due_moved("a", at(0, 18), at(4, 17), at(6, 17))],
         )
         == []
     )
@@ -147,10 +125,9 @@ def test_several_blocks_and_pushes_become_one_episode():
     found = episodes(
         tasks=[a_task(uuid="a", due=at(4, 17))],
         blocks=[a_block("a", at(0, 9), 60), a_block("a", at(2, 9), 60)],
-        records=[
-            snapshot(at(0, 18), a_task(uuid="a", due=at(0, 17))),
-            snapshot(at(1, 18), a_task(uuid="a", due=at(2, 17))),
-            snapshot(at(3, 18), a_task(uuid="a", due=at(4, 17))),
+        changes=[
+            due_moved("a", at(1, 18), at(0, 17), at(2, 17)),
+            due_moved("a", at(3, 18), at(2, 17), at(4, 17)),
         ],
     )
     assert len(found) == 1
@@ -173,10 +150,7 @@ def test_the_strongest_evidence_is_asked_about_first():
             a_block("strong", at(0, 9), 60),
             a_block("strong", at(2, 9), 60),
         ],
-        records=[
-            snapshot(at(0, 18), a_task(uuid="strong", due=at(0, 17))),
-            snapshot(at(1, 18), a_task(uuid="strong", due=at(4, 17))),
-        ],
+        changes=[due_moved("strong", at(1, 18), at(0, 17), at(4, 17))],
     )
     assert [e.task.uuid for e in found] == ["strong", "weak"]
 
@@ -185,10 +159,7 @@ def test_a_block_and_a_push_together_are_the_strongest_suggestion():
     (episode,) = episodes(
         tasks=[a_task(uuid="a", due=at(4, 17))],
         blocks=[a_block("a", at(0, 9), 60)],
-        records=[
-            snapshot(at(0, 18), a_task(uuid="a", due=at(0, 17))),
-            snapshot(at(1, 18), a_task(uuid="a", due=at(4, 17))),
-        ],
+        changes=[due_moved("a", at(1, 18), at(0, 17), at(4, 17))],
     )
     assert episode.suggestion == "likely unfinished, then deferred"
 

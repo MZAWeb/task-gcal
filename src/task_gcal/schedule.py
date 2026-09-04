@@ -16,6 +16,7 @@ from googleapiclient.errors import HttpError
 
 from .config import Settings
 from .gcal import CalEvent, GCal
+from .changes import harvest as harvest_changes
 from .guard import removal_guard_error
 from .journal import MODE_SCHEDULE, ObservedBlock, record_run
 from .placement import (
@@ -176,6 +177,12 @@ def reconcile(
         override_uda=settings.override_uda,
     )
     next_uuids = {t.uuid for t in tasks}
+
+    # Copy any task edits you've made since the last run into our own history.
+    # Read-only against Taskwarrior, and it can only fail quietly — placement
+    # never consults history, so a failed harvest cannot affect the calendar.
+    if not dry_run:
+        harvest_changes(settings)
 
     # Resolve each task's effective Settings from its override UDA up front,
     # so the horizon below can account for per-task overdue windows.

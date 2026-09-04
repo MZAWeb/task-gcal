@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from ..changes import ChangeHistory, harvest
+from ..changes import load as load_changes
 from ..config import Settings
 from ..gcal import CalEvent, GCal
 from ..intervals import clip_to_windows, total_minutes
@@ -65,9 +67,22 @@ class Facts:
     # meeting load rather than total busy-ness.
     meetings: tuple[tuple[datetime, datetime], ...] = ()
     journal: JournalRead = field(default_factory=JournalRead)
+    # Taskwarrior's own record of what changed, harvested into our store. The
+    # journal no longer carries task fields at all.
+    changes: ChangeHistory = field(default_factory=ChangeHistory)
     # Set when a source failed. A metric that depends on it must report
     # itself unmeasured rather than treat the gap as zero.
     calendar_ok: bool = True
+    # Built once here rather than five times across the metrics that want it.
+    timelines: dict = field(default_factory=dict, compare=False)
+
+    def __post_init__(self) -> None:
+        if not self.timelines and self.changes.changes:
+            from .observed import build_timelines
+
+            object.__setattr__(
+                self, "timelines", build_timelines(self.changes.changes)
+            )
 
     # ---------------------------- derived views ---------------------------
 
@@ -128,6 +143,42 @@ class Facts:
             for r in self.records_in_period()
             if r.source_ok
         }
+
+    def changes_in_period(self) -> list:
+        """Harvested field changes that happened inside the period."""
+        return [c for c in self.changes.changes if self.period.contains(c.at)]
+
+    def change_history_reaches_period(self) -> bool:
+        """True when harvested history covers the period being reported on.
+
+        False means the answer to "did anything move?" is *unknown*, not "no" —
+        either nothing has been harvested yet, or our earliest change is after
+        the period started.
+        """
+        earliest = self.changes.earliest
+        return earliest is not None and earliest <= self.period.start
+
+    def change_coverage_note(self) -> Optional[str]:
+        """Why the change history might be incomplete, if it might be."""
+        earliest = self.changes.earliest
+        if earliest is None:
+            return (
+                "No task-change history yet. `task-gcal backfill` imports what "
+                "Taskwarrior still remembers."
+            )
+        if earliest > self.period.start:
+            return (
+                "Task-change history starts "
+                f"{earliest.astimezone(self.period.tz):%Y-%m-%d}, after this "
+                f"{self.period.kind} began, so earlier moves are unknown "
+                "rather than absent."
+            )
+        if self.changes.gaps:
+            return (
+                f"{len(self.changes.gaps)} Taskwarrior operation(s) could not "
+                "be read, so a change may be missing."
+            )
+        return None
 
     def backfilled_days(self) -> set:
         return {
@@ -215,6 +266,11 @@ def collect(
         until=period.end,
         modes=(MODE_SCHEDULE, MODE_SNAPSHOT, MODE_BACKFILL),
     )
+    # Harvest before reading: a change you made since the last run should
+    # appear in the review you're about to read. Never raises — a failed
+    # harvest degrades to the history we already had.
+    harvest(settings)
+    changes = load_changes()
 
     return Facts(
         period=period,
@@ -224,6 +280,7 @@ def collect(
         blocks=blocks,
         meetings=meetings,
         journal=journal,
+        changes=changes,
         calendar_ok=calendar_ok,
     )
 

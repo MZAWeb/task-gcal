@@ -12,7 +12,6 @@ rather than something this program has opinions about.
 
 from __future__ import annotations
 
-from .observed import build_timelines
 from .stagnation import find, prescribe
 
 # Kept out of the copyable command lines so a blind paste of the whole block
@@ -23,7 +22,7 @@ _COMMENT_COLUMN = 34
 def render(facts) -> str:
     entries = find(
         list(facts.tasks),
-        timelines=build_timelines(facts.journal.records),
+        timelines=facts.timelines,
         blocks_by_task=facts.blocks_by_task(),
         now=facts.now,
     )

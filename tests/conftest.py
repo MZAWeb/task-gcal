@@ -423,6 +423,49 @@ def taskchampion_db(directory, ops, *, version=(0, 2), synced=False, wal=False):
     return path
 
 
+def a_field_change(
+    *,
+    at: datetime,
+    uuid: str = "u1",
+    field: str = "due",
+    old=None,
+    new=None,
+    op_id: Optional[int] = None,
+):
+    """One harvested field change, as the op-log harvester would store it.
+
+    Values are given as the objects a test cares about — a datetime, an int, a
+    string — and encoded to the raw form the store keeps, so tests read as the
+    change they describe rather than as epoch arithmetic.
+    """
+    from task_gcal.changes import TaskChange
+    from task_gcal.changes.records import TIMESTAMP_FIELDS
+
+    def encode(value):
+        if value is None:
+            return None
+        if field in TIMESTAMP_FIELDS:
+            return str(int(value.timestamp()))
+        return str(value)
+
+    return TaskChange(
+        at=at,
+        uuid=uuid,
+        field=field,
+        old=encode(old),
+        new=encode(new),
+        op_id=op_id,
+    )
+
+
+def due_moved(uuid: str, at: datetime, frm: datetime, to: datetime):
+    return a_field_change(at=at, uuid=uuid, field="due", old=frm, new=to)
+
+
+def estimate_changed(uuid: str, at: datetime, frm: Optional[int], to: Optional[int]):
+    return a_field_change(at=at, uuid=uuid, field="estimate", old=frm, new=to)
+
+
 def tc_update(
     uuid="u1", prop="due", old=None, new="1788472800", at="2026-09-01T10:00:00Z"
 ):
@@ -437,14 +480,24 @@ def tc_update(
 
 @pytest.fixture(autouse=True)
 def isolated_journal(tmp_path, monkeypatch):
-    """Point the journal at a temp dir for *every* test.
+    """Point every store at a temp dir, for *every* test.
 
-    Autouse and unconditional: anything that runs a command may append an
-    observation, and a test suite that writes to the developer's real
-    history is a bug that only shows up as mysterious extra data.
+    Autouse and unconditional, because anything that runs a command may append
+    an observation or harvest a change. A suite that writes to the developer's
+    real history is a bug that only shows up later as mysterious extra data —
+    this one did, once.
+
+    Taskwarrior's own database is redirected too: `harvest` reads it on any
+    substantive command, so without this the suite would read the developer's
+    real 24,000-operation log on hundreds of tests.
     """
+    from task_gcal import taskchampion
+
     root = tmp_path / "data"
     monkeypatch.setenv("TASK_GCAL_DATA_DIR", str(root))
+    monkeypatch.setattr(
+        taskchampion, "data_location", lambda: tmp_path / "no-taskwarrior-here"
+    )
     return root
 
 
@@ -548,6 +601,7 @@ class ReviewHarness:
         self._blocks: list[CalEvent] = []
         self._meetings: list[tuple[datetime, datetime]] = []
         self._records: list = []
+        self._changes: list = []
         self.calendar_ok = True
         self.kind = "week"
         self.offset = 0
@@ -566,6 +620,11 @@ class ReviewHarness:
 
     def records(self, *records) -> "ReviewHarness":
         self._records = list(records)
+        return self
+
+    def changes(self, *changes) -> "ReviewHarness":
+        """Harvested task-field changes, the source of every churn metric."""
+        self._changes = list(changes)
         return self
 
     def configure(self, **kwargs) -> "ReviewHarness":
@@ -597,6 +656,7 @@ class ReviewHarness:
         )
 
     def facts(self):
+        from task_gcal.changes import ChangeHistory
         from task_gcal.journal import JournalRead
         from task_gcal.review.facts import Facts
 
@@ -608,6 +668,7 @@ class ReviewHarness:
             blocks=tuple(self._blocks),
             meetings=tuple(self._meetings),
             journal=JournalRead(records=list(self._records)),
+            changes=ChangeHistory(changes=list(self._changes)),
             calendar_ok=self.calendar_ok,
         )
 

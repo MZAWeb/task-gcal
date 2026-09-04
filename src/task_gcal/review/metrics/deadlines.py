@@ -14,15 +14,15 @@ wrong:
   but plenty of tasks are simply finished late against a date nobody touched.
   Reporting only churn would miss all of them.
 
-Everything derived from the journal says **observed**: a due date that moved
-twice between two runs is one observation, and one that moved out and back is
-none.
+These come from Taskwarrior's own operation log, so they are exact: a due date
+that moved twice is two pushes, not one. What is bounded is *reach* — nothing
+is known before the earliest harvested change — and that is reported as
+coverage rather than smoothed over.
 """
 
 from __future__ import annotations
 
 from ..model import Coverage, Section, Suggestion
-from ..observed import build_timelines, sampling_note
 
 KEY = "deadlines"
 
@@ -35,10 +35,13 @@ _TOP_OFFENDERS = 5
 
 
 def build(facts) -> Section:
-    records = facts.journal.records
     window = (facts.period.start, facts.period.end)
-    timelines = build_timelines(records)
-    in_period = facts.records_in_period()
+    timelines = facts.timelines
+    # Measured as soon as we have any history at all: pushes inside the window
+    # are real even if our reach starts mid-period. How far back the history
+    # goes is a coverage question, not a measured/unmeasured one.
+    has_history = facts.changes.earliest is not None
+    covers_period = facts.change_history_reaches_period()
 
     pushed = {
         uuid: t.pushes(within=window)
@@ -60,7 +63,7 @@ def build(facts) -> Section:
         e for e in with_due if not e["met_final"] and e["pushes"] == 0
     ]
 
-    if not in_period and not with_due:
+    if not has_history and not with_due:
         return Section(
             key=KEY,
             label="Deadlines",
@@ -72,7 +75,7 @@ def build(facts) -> Section:
     summary_parts = []
     if push_count:
         summary_parts.append(
-            f"{push_count} observed push(es) across {len(pushed)} task(s)"
+            f"{push_count} push(es) across {len(pushed)} task(s)"
         )
         summary_parts.append(f"{days:.0f} days")
     if with_due:
@@ -80,7 +83,7 @@ def build(facts) -> Section:
     summary = " · ".join(summary_parts) or "no deadlines moved or met"
 
     detail = [
-        f"Observed pushes    {push_count} across {len(pushed)} task(s), "
+        f"Deadline pushes    {push_count} across {len(pushed)} task(s), "
         f"{days:.0f} day(s) total",
         f"  after the old date {reactive} (a miss being reported)",
         f"  before it          {push_count - reactive} (a commitment being "
@@ -105,8 +108,9 @@ def build(facts) -> Section:
         if len(offenders) > _TOP_OFFENDERS:
             detail.append(f"  ... and {len(offenders) - _TOP_OFFENDERS} more")
 
-    if in_period:
-        detail.append(f"Journal {sampling_note(in_period)}.")
+    note = facts.change_coverage_note()
+    if note:
+        detail.append(note)
 
     suggestions: list[Suggestion] = []
     for uuid, changes in offenders:
@@ -144,9 +148,9 @@ def build(facts) -> Section:
                 total=len(completed),
             ),
             Coverage(
-                label="days of the period the journal observed",
-                observed=len(facts.observed_days()),
-                total=len(facts.period.days()),
+                label="the period is covered by harvested change history",
+                observed=1 if covers_period else 0,
+                total=1,
             ),
         ),
         data={
