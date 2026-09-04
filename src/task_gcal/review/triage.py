@@ -32,7 +32,7 @@ def render(facts) -> str:
             "to need a decision.\n"
         )
 
-    lines = [f"Stagnant ({len(entries)}):"]
+    lines = [f"Stuck ({len(entries)}):"]
     for entry in entries:
         lines.append(f"  {entry.summary}")
         for command, why in prescribe(entry).commands:

@@ -102,39 +102,54 @@ A review is a **document, not an application**: read-only,
 non-interactive, and one screen by default.
 
 ```text
-Week 37
+Week 37 · 4 of 7 days seen
 
-Capacity       42h available · 10h meetings · 4h30 planned
-Completed      5 tasks · 5h planned
-Backlog        18 created · 14 completed · 3 deleted · net +1
-Follow-through 12 of 18 blocks honoured · 3 completed off-plan
-Deadlines      3 observed push(es) across 2 task(s) · 11 days
-Friction       capacity 4 · avoided 3 · estimate 1 · 2 unclassified
-Boundaries     2 evening(s) (1h35) · 1 weekend day(s) (1h30)
-Stagnation     3 of 23 open task(s) need a decision
+Time           42h working, 10h in meetings, 32h left
+Finished       5 tasks (3 by the same point last week), 5h of estimates
+Backlog        18 new, 14 done, 3 dropped — the list is 1 longer
+Blocks         18 blocks came and went. 12 ended with the task done, 6 are
+               still open. 3 tasks finished with no block at all.
+Dates          2 tasks moved a due date, 3 times between them, the longest
+               by 6 days. Of the 5 finished with a date, 4 landed on it.
+Reasons        capacity 4 · avoided 3 · estimate 1 · 2 unclassified
+After hours    1h35 on 2 evenings, 1h30 on 1 weekend day
 
 Coverage
-  4 of 7 day(s) observed. Anything the journal didn't see is missing, not zero.
+  Anything the journal didn't see is missing, not zero — see the day count
+  beside the title.
   Measured on calendar primary.
 
+Also: task-gcal review --section lead_time · rescheduling · sittings ·
+  growth · stuck · trends
+
 Look at: "Prepare PIR" was deferred for the 3rd time — decide whether it is
-real.
+real. This is the 2nd week running that I've closed with this.
 ```
 
-Four rules shape everything in it:
+Five rules shape everything in it:
 
-1. **Capacity comes first**, because meeting load is the denominator for
-   every completion number under it. A hard week with half its hours in
-   meetings is a different thing from an unexplained miss.
-2. **Every number carries its coverage.** `38/50 completed tasks had
-   estimates`, `4 of 7 days observed`, which calendar was measured. A
-   number without a denominator is a rumour, and missing data never
-   quietly becomes zero.
-3. **Planned time is not time worked.** Estimate-minutes are what you
+1. **A number is written as a sentence.** `2 of 17 blocks honoured` is a
+   true statement and a terrible sentence — and "honoured" was the metric
+   doing the moralising, not the number. Nothing here is scored, graded or
+   rewarded; the moment a number can shame you it stops being told the
+   truth.
+2. **Time comes first**, because meeting load is what every completion
+   number under it should be read against. A week with two thirds of its
+   hours in meetings is a different thing from an unexplained miss — and
+   the sections are only ever placed next to each other, never joined by a
+   claim about cause.
+3. **Every number carries its coverage.** `38/50 completed tasks had
+   estimates`, `4 of 7 days seen`, which calendar was measured. A number
+   without a denominator is a rumour, and missing data never quietly
+   becomes zero. "Not measured" is reserved for data that should have been
+   there, so it still means something on the week it matters.
+4. **Planned time is not time worked.** Estimate-minutes are what you
    thought it would take. Nothing here claims to know how long anything
    actually took.
-4. **It ends with one thing to look at.** If a report can't name a single
-   concrete change, it's a dashboard.
+5. **It ends with one thing to look at** — and says when that's the same
+   thing it said last week. The closing line is the only part with any
+   authority, and a line that repeats itself in the same tone every Friday
+   trains you to skip it.
 
 `--all` prints every section in full — reach for that first. `--section
 NAME` (repeatable) narrows it to the ones you want once you know which
@@ -164,11 +179,11 @@ word about a person, and "stuck" is a word about a task.
 
 ### `task-gcal review --triage`
 
-Lists the stagnant tasks with the exact commands that would resolve each,
+Lists the stuck tasks with the exact commands that would resolve each,
 and **runs none of them**:
 
 ```text
-Stagnant (3):
+Stuck (3):
   #32 Follow up on post-offsite tasks — 5 blocks passed
       task 32 modify estimate:20        # shrink it to a first step you'd actually start
       task 32 delete                    # be honest
