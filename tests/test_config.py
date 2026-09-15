@@ -38,6 +38,7 @@ def test_defaults_are_the_documented_ones():
     assert s.overdue_horizon_days == 30
     assert s.lookback_days == 7
     assert s.removal_guard_ratio == 0.5
+    assert s.schedule_waiting is True
     assert s.attendees == ()
 
 
@@ -188,6 +189,24 @@ def test_a_non_numeric_setting_in_the_config_file_is_reported(monkeypatch, tmp_p
         load_settings()
 
 
+def test_waiting_scheduling_can_be_turned_off_in_the_config_file(monkeypatch, tmp_path):
+    _write_config(monkeypatch, tmp_path, "schedule_waiting = false\n")
+    assert load_settings().schedule_waiting is False
+
+
+def test_a_quoted_false_is_still_false(monkeypatch, tmp_path):
+    # TOML would take the string; `bool("false")` is True, and a setting that
+    # silently means its opposite is the worst kind.
+    _write_config(monkeypatch, tmp_path, 'schedule_waiting = "false"\n')
+    assert load_settings().schedule_waiting is False
+
+
+def test_a_setting_that_is_neither_true_nor_false_is_reported(monkeypatch, tmp_path):
+    _write_config(monkeypatch, tmp_path, 'schedule_waiting = "sometimes"\n')
+    with pytest.raises(SystemExit, match="schedule_waiting must be true or false"):
+        load_settings()
+
+
 def test_a_per_task_end_hour_of_24_is_allowed():
     assert parse_task_overrides("work_end_hour=24") == {"work_end_hour": 24}
 
@@ -300,7 +319,8 @@ def test_unknown_key_is_an_error():
 
 @pytest.mark.parametrize(
     "key", ["calendar_id", "timezone", "report", "estimate_uda", "lookback_days",
-            "override_uda", "event_visibility", "removal_guard_ratio"]
+            "override_uda", "event_visibility", "removal_guard_ratio",
+            "schedule_waiting"]
 )
 def test_run_global_keys_are_rejected_per_task(key):
     with pytest.raises(ValueError, match="non-per-task"):

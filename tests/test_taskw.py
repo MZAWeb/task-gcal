@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from task_gcal import taskw as taskw_mod
-from task_gcal.taskw import TaskInfo, load_next_tasks
+from task_gcal.taskw import TaskInfo, load_next_tasks, load_waiting_tasks
 
 from conftest import NOW, task_row, tw_stamp
 
@@ -284,3 +284,37 @@ def test_stamp_helper_round_trips():
     # Guards the test helper itself: a wrong stamp format would silently make
     # every due date None and quietly change what the suite is testing.
     assert taskw_mod._parse_tw_datetime(tw_stamp(NOW)) == NOW
+
+
+# ---------------------------------------------------------------------------
+# load_waiting_tasks
+# ---------------------------------------------------------------------------
+
+def test_the_waiting_filter_goes_before_the_command_word(tw):
+    # `task export +WAITING` exports the whole database: Taskwarrior looks for
+    # a filter before the command, not after it.
+    load_waiting_tasks()
+    assert tw.calls[0][-2:] == ["+WAITING", "export"]
+
+
+def test_waiting_tasks_come_back_parsed_like_any_other(tw):
+    when = datetime(2026, 9, 20, tzinfo=UTC)
+    tw.waiting_rows = [task_row(uuid="w1", wait=when, estimate=30)]
+    (task,) = load_waiting_tasks()
+    assert task.uuid == "w1"
+    assert task.wait == when
+    assert task.estimate_minutes == 30
+
+
+def test_a_closed_task_with_a_future_wait_is_not_scheduled(tw):
+    # `+WAITING` matches on the wait date alone, and a completed task can
+    # still carry one. Booking time for finished work would be nonsense.
+    rows = [
+        task_row(uuid="open", wait=NOW),
+        task_row(uuid="done", wait=NOW),
+        task_row(uuid="dropped", wait=NOW),
+    ]
+    rows[1]["status"] = "completed"
+    rows[2]["status"] = "deleted"
+    tw.waiting_rows = rows
+    assert [t.uuid for t in load_waiting_tasks()] == ["open"]

@@ -939,3 +939,122 @@ def test_the_guard_reports_in_a_dry_run_too(harness):
 
     assert res.code == 1
     assert len(res.section("Held back")) == 4
+
+
+# ---------------------------------------------------------------------------
+# Waiting tasks
+# ---------------------------------------------------------------------------
+
+def test_a_waiting_task_gets_a_block_on_the_day_it_arrives(harness):
+    # `wait:due` on Wednesday: booked during Wednesday's working hours, not
+    # left for whenever you next look at the list.
+    end_of_wed = at(2, 23, 59)
+    harness.waiting(
+        task_row(uuid="w1", due=end_of_wed, estimate=60, wait=end_of_wed)
+    )
+    harness.run()
+
+    assert harness.gcal.created[0]["task_uuid"] == "w1"
+    assert harness.gcal.created[0]["start"] == at(2, 9)
+
+
+def test_the_report_comes_first_however_urgent_a_waiting_task_is(harness):
+    # Both are free to start Tuesday, and the waiting one is far more urgent
+    # by Taskwarrior's reckoning. The work that has actually arrived still
+    # gets Tuesday morning.
+    harness.tasks(
+        task_row(
+            uuid="u1", due=FRI_5PM, estimate=60, scheduled=at(1, 0), urgency=1.0
+        )
+    )
+    harness.waiting(
+        task_row(
+            uuid="w1", id=2, due=FRI_5PM, estimate=60, wait=at(1, 0), urgency=100.0
+        )
+    )
+    harness.run()
+
+    placed = {c["task_uuid"]: c["start"] for c in harness.gcal.created}
+    assert placed == {"u1": at(1, 9), "w1": at(1, 10)}
+
+
+def test_a_waiting_block_says_so_in_the_report(harness):
+    harness.waiting(
+        task_row(uuid="w1", due=FRI_5PM, estimate=60, wait=at(2, 0))
+    )
+    res = harness.run()
+
+    assert "(waiting)" in res.section("Scheduled")[0]
+
+
+def test_a_waiting_tasks_own_block_is_not_an_orphan(harness):
+    # The task is in no report, so nothing but the waiting export keeps its
+    # block alive. A second run must leave it exactly where it is.
+    harness.waiting(
+        task_row(uuid="w1", due=FRI_5PM, estimate=60, wait=at(1, 0))
+    )
+    harness.run()
+    before = harness.gcal.event_for("w1").start
+    harness.gcal.created.clear()
+    harness.gcal.patched.clear()
+    harness.run()
+
+    assert harness.gcal.deleted == []
+    assert harness.gcal.created == []
+    assert harness.gcal.event_for("w1").start == before
+
+
+def test_a_settled_waiting_block_stays_where_it_is(harness):
+    # Tomorrow at 14:00 with tomorrow morning wide open. Once a block is a
+    # day away it has been on the calendar long enough to plan around,
+    # whatever Taskwarrior is still hiding.
+    settled = managed_event(id="ev1", task_uuid="w1", start=at(1, 14), end=at(1, 15))
+    harness.waiting(
+        task_row(uuid="w1", due=FRI_5PM, estimate=60, wait=at(1, 0))
+    ).events(settled)
+    harness.run()
+
+    assert harness.gcal.event_for("w1").start == at(1, 14)
+
+
+def test_a_waiting_task_without_an_estimate_is_not_mentioned(harness):
+    # There are usually a lot of these and none of them is something you've
+    # been asked to act on yet.
+    harness.waiting(task_row(uuid="w1", due=FRI_5PM, estimate=None))
+    res = harness.run()
+
+    assert harness.gcal.created == []
+    assert "Nothing to do." in res.out
+
+
+def test_a_waiting_task_that_lost_its_estimate_loses_its_block(harness):
+    # Silence is for tasks with nothing on the calendar. This one has a
+    # block, so it goes — and the report says why.
+    stale = managed_event(id="ev1", task_uuid="w1", start=at(1, 9), end=at(1, 10))
+    harness.waiting(task_row(uuid="w1", due=FRI_5PM, estimate=None)).events(stale)
+    res = harness.run()
+
+    assert harness.gcal.deleted == ["ev1"]
+    assert "no estimate" in res.section("Removed stale")[0]
+
+
+def test_no_waiting_schedules_only_what_the_report_shows(harness):
+    harness.waiting(
+        task_row(uuid="w1", due=FRI_5PM, estimate=60, wait=at(1, 0))
+    )
+    harness.configure(schedule_waiting=False).run()
+
+    assert harness.gcal.created == []
+    assert not any("+WAITING" in call for call in harness.tw.calls)
+
+
+def test_a_waiting_task_that_does_not_fit_says_so_too(harness):
+    # Least urgent thing on the page: it hasn't even arrived yet. Without the
+    # marker it reads like a deadline you're about to miss.
+    harness.waiting(
+        task_row(uuid="w1", due=at(1, 10), estimate=60, wait=at(1, 0))
+    )
+    harness.busy((at(1, 0), at(1, 23)))
+    res = harness.run()
+
+    assert "(waiting)" in res.section("Could not fit")[0]

@@ -26,6 +26,7 @@ def health(monkeypatch, capsys, tmp_path, isolated_journal):
         def __init__(self) -> None:
             self.settings = Settings(timezone="UTC")
             self.tasks = [a_task(uuid="a", estimate=60)]
+            self.waiting = []
             self.task_on_path = True
             self.config_exists = False
             self.credentials = True
@@ -59,6 +60,9 @@ def health(monkeypatch, capsys, tmp_path, isolated_journal):
 
     monkeypatch.setattr("shutil.which", fake_which)
     monkeypatch.setattr("task_gcal.taskw.load_next_tasks", fake_load)
+    monkeypatch.setattr(
+        "task_gcal.taskw.load_waiting_tasks", lambda **_kwargs: h.waiting
+    )
     monkeypatch.setattr("task_gcal.doctor.USER_CONFIG_PATH", tmp_path / "none.toml")
 
     creds = tmp_path / "credentials.json"
@@ -256,3 +260,18 @@ def test_an_empty_work_week_is_a_failure(health):
     health.configure(work_days=frozenset()).run()
     assert health.code == 1
     assert "nowhere to schedule" in health.out
+
+
+def test_the_taskwarrior_line_counts_the_waiting_tasks_it_can_book(health):
+    health.waiting = [
+        a_task(uuid="w1", estimate=60, due=NOW + timedelta(days=2)),
+        a_task(uuid="w2", estimate=None, due=NOW + timedelta(days=2)),
+        a_task(uuid="w3", estimate=60, due=None),
+    ]
+    health.run()
+    assert "returned 3, 1 of them" in health.line("taskwarrior")
+
+
+def test_the_waiting_export_is_skipped_when_waiting_is_off(health):
+    health.configure(schedule_waiting=False).run()
+    assert "WAITING" not in health.line("taskwarrior")

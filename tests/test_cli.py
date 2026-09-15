@@ -65,6 +65,14 @@ def test_flags_reach_settings():
     assert s.removal_guard_ratio == 0.9
 
 
+def test_waiting_is_a_three_state_flag():
+    # Unset must leave config.toml alone, so the default is None rather than
+    # the setting's own default.
+    assert parse().schedule_waiting is None
+    assert settings_from("--no-waiting").schedule_waiting is False
+    assert settings_from("--waiting").schedule_waiting is True
+
+
 def test_dry_run_and_force_are_not_settings():
     args = parse("--dry-run", "--force")
     assert args.dry_run is True

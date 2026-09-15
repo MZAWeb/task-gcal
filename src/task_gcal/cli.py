@@ -100,6 +100,7 @@ _OVERRIDE_DESTS = (
     "event_color_id",
     "event_visibility",
     "report",
+    "schedule_waiting",
     "timezone",
     "overdue_horizon_days",
     "lookback_days",
@@ -123,6 +124,13 @@ def _overrides_parent() -> argparse.ArgumentParser:
     g.add_argument(
         "--report", dest="report", metavar="NAME",
         help="Taskwarrior report to pull tasks from (default: next).",
+    )
+    g.add_argument(
+        "--waiting", dest="schedule_waiting",
+        action=argparse.BooleanOptionalAction, default=None,
+        help="Also book tasks still deferred by their `wait` date, after "
+             "everything in the report has a slot; --no-waiting schedules "
+             "only what the report shows (default: on).",
     )
     g.add_argument(
         "--estimate-uda", dest="estimate_uda", metavar="NAME",

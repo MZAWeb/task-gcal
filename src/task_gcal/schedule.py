@@ -32,7 +32,12 @@ from .placement import (
 )
 from .progress import Progress
 from .report import print_report
-from .taskw import TaskInfo, load_next_tasks
+from .taskw import (
+    WAITING_FILTER,
+    TaskInfo,
+    load_next_tasks,
+    load_waiting_tasks,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +257,22 @@ def reconcile(
         estimate_uda=settings.estimate_uda,
         override_uda=settings.override_uda,
     )
-    next_uuids = {t.uuid for t in tasks}
+    # Tasks deferred by a `wait` date, which no `next`-style report shows.
+    # They get booked after everything in the report does — see
+    # `plan_placements` — so that holding their day open never costs the work
+    # already in front of you a better slot.
+    waiting = (
+        load_waiting_tasks(
+            estimate_uda=settings.estimate_uda,
+            override_uda=settings.override_uda,
+        )
+        if settings.schedule_waiting
+        else []
+    )
+    # Every task we'd keep a block for. An event whose task is in neither
+    # list has been finished, deleted or un-waited into nothing, and is an
+    # orphan.
+    known_uuids = {t.uuid for t in tasks} | {t.uuid for t in waiting}
 
     # Copy any task edits you've made since the last run into our own history.
     # Read-only against Taskwarrior, and it can only fail quietly — placement
@@ -262,11 +282,11 @@ def reconcile(
 
     # Resolve each task's effective Settings from its override UDA up front,
     # so the horizon below can account for per-task overdue windows.
-    task_settings = resolve_task_settings(tasks, settings)
+    task_settings = resolve_task_settings(tasks + waiting, settings)
 
     gcal = GCal(settings)
 
-    horizon_end = horizon_for(tasks, task_settings, settings, now)
+    horizon_end = horizon_for(tasks + waiting, task_settings, settings, now)
 
     # List our managed events out to at least the horizon (so far-future
     # events stay visible to reconciliation).
@@ -291,9 +311,12 @@ def reconcile(
     # A source that returns nothing is indistinguishable from "you finished
     # everything" — except that the second case is rare and the first has
     # several silent causes. Bail before mutating anything.
-    if not tasks and owned_unfinished and not force:
+    if not tasks and not waiting and owned_unfinished and not force:
+        sources = f"`task export {settings.report}`"
+        if settings.schedule_waiting:
+            sources += f" and `task {WAITING_FILTER} export`"
         print(
-            f"`task export {settings.report}` returned no tasks, but "
+            f"{sources} returned no tasks, but "
             f"{owned_unfinished} unfinished event(s) on "
             f"{settings.calendar_id} are ours.\n"
             "Refusing to clear them. An empty task list is usually a wrong "
@@ -340,7 +363,7 @@ def reconcile(
 
     for ev in existing:
         # Future events whose task is no longer in `next` -> delete.
-        if ev.task_uuid not in next_uuids:
+        if ev.task_uuid not in known_uuids:
             if ev.start > now:
                 _plan_delete(ev, removed_orphans)
             continue
@@ -379,8 +402,23 @@ def reconcile(
         else:
             schedulable.append(t)
 
+    # Same triage for the deferred ones, but silent: a waiting task with no
+    # estimate isn't something you've been asked to act on yet, and there are
+    # usually a lot of them. A block left over from when it *did* have an
+    # estimate is different — that one is on the calendar, so it goes, and
+    # the report says so.
+    waiting_schedulable: list[TaskInfo] = []
+    for t in sorted(waiting, key=lambda t: t.urgency, reverse=True):
+        if t.estimate_minutes is None:
+            _drop_existing_if_future(t.uuid, "no estimate")
+        elif t.due is None:
+            _drop_existing_if_future(t.uuid, "no due date")
+        else:
+            waiting_schedulable.append(t)
+
     decisions, unschedulable = plan_placements(
         schedulable,
+        waiting=waiting_schedulable,
         task_settings=task_settings,
         keepers=keepers,
         busy=busy,
@@ -482,6 +520,7 @@ def reconcile(
 
     print_report(
         placed=placed,
+        waiting_uuids={t.uuid for t in waiting},
         no_estimate=no_estimate,
         no_due=no_due,
         unschedulable=unschedulable,

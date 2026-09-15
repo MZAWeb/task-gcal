@@ -17,6 +17,7 @@ Example config.toml:
     event_color_id  = "9"               # Blueberry
     event_visibility = "private"
     report          = "next"
+    schedule_waiting = true            # also book tasks deferred by `wait`
     timezone        = "Europe/London"   # omit to use the system local zone
     overdue_horizon_days = 30
     lookback_days   = 7
@@ -82,6 +83,12 @@ class Settings:
     event_color_id: str = "9"  # Blueberry
     event_visibility: str = "private"
     report: str = "next"
+    # Whether to book time for tasks that are still deferred by their `wait`
+    # date, after everything in `report` has its slot. They're the work you
+    # already know is coming; holding their day open beats discovering it is
+    # full on the morning it arrives. Set false to schedule only what the
+    # report shows.
+    schedule_waiting: bool = True
     # IANA name (e.g. "Europe/London"). None -> system local zone.
     timezone: Optional[str] = None
     # When a task is overdue, schedule ASAP; the effective deadline
@@ -154,6 +161,10 @@ def load_settings() -> Settings:
             event_color_id=str(get("event_color_id", defaults.event_color_id)),
             event_visibility=str(get("event_visibility", defaults.event_visibility)),
             report=str(get("report", defaults.report)),
+            schedule_waiting=coerce_bool(
+                get("schedule_waiting", defaults.schedule_waiting),
+                key="schedule_waiting",
+            ),
             timezone=str(timezone_raw) if timezone_raw else None,
             overdue_horizon_days=int(
                 get("overdue_horizon_days", defaults.overdue_horizon_days)
@@ -193,6 +204,22 @@ def coerce_hour(raw, *, maximum: int = 23) -> int:
     if not 0 <= hour <= maximum:
         raise ValueError(f"hour must be between 0 and {maximum}, got {hour}")
     return hour
+
+
+def coerce_bool(raw, *, key: str) -> bool:
+    """Parse a config boolean, rejecting the near-misses TOML allows.
+
+    `bool(raw)` would read the string "false" as true, which is the one
+    mistake worth catching: a setting that silently means its opposite.
+    """
+    if isinstance(raw, bool):
+        return raw
+    text = str(raw).strip().lower()
+    if text in ("true", "yes", "1"):
+        return True
+    if text in ("false", "no", "0"):
+        return False
+    raise ValueError(f"{key} must be true or false, got {raw!r}")
 
 
 def coerce_journal_detail(raw) -> str:

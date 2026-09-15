@@ -11,7 +11,7 @@ import bisect
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
-from typing import Optional
+from typing import Optional, Sequence
 
 from .config import Settings, apply_overrides, parse_task_overrides
 from .drift import is_pinned
@@ -195,6 +195,7 @@ def _task_window(
 def plan_placements(
     tasks: list[TaskInfo],
     *,
+    waiting: Sequence[TaskInfo] = (),
     task_settings: dict[str, Settings],
     keepers: dict[str, CalEvent],
     busy: list[tuple[datetime, datetime]],
@@ -204,12 +205,20 @@ def plan_placements(
 ) -> tuple[list[Decision], list[TaskInfo]]:
     """Decide where every schedulable task's block goes.
 
-    Two passes, and the order is the point. Pass one reserves the blocks we
-    already committed to — in-progress and settled near-term placements that
-    are still valid. Only then does pass two place the rest, so a newly
-    urgent task can claim time that isn't already promised. One
-    urgency-ordered pass would let that task take a slot a settled block was
-    sitting in, and the settled block would have to move after all.
+    Three passes, and the order is the point.
+
+    Pass one reserves the blocks we already committed to — in-progress and
+    settled near-term placements that are still valid. Only then does pass
+    two place the rest, so a newly urgent task can claim time that isn't
+    already promised. One urgency-ordered pass would let that task take a
+    slot a settled block was sitting in, and the settled block would have to
+    move after all.
+
+    Pass three places `waiting` — tasks deferred by a `wait` date, which the
+    report doesn't show yet. They go last because they are not the work in
+    front of you: booking time for them is about keeping their day from
+    filling up before they arrive, and it must never cost the work that has
+    already arrived a better slot.
 
     `busy` is extended in place with every block reserved or placed. Returns
     the decisions in urgency order, and the tasks that didn't fit.
@@ -222,9 +231,15 @@ def plan_placements(
     # ---- Pass 1: reserve blocks we already committed to -------------------
     # Earliest first, so an in-progress block is reserved before anything
     # else and two settled blocks that somehow overlap resolve in favour of
-    # the one starting sooner.
+    # the one starting sooner. A waiting task's block settles like any other:
+    # once it is a day or two away, it has been on your calendar long enough
+    # to plan around, whatever Taskwarrior is still hiding.
     settled_first = sorted(
-        (t for t in tasks if _is_sticky_candidate(t, keepers, now, settings)),
+        (
+            t
+            for t in (*tasks, *waiting)
+            if _is_sticky_candidate(t, keepers, now, settings)
+        ),
         key=lambda t: keepers[t.uuid].start,
     )
     for t in settled_first:
@@ -257,40 +272,43 @@ def plan_placements(
         decisions.append(decision)
         bisect.insort(busy, decision.interval)
 
-    # ---- Pass 2: place everything else, most urgent first ----------------
+    # ---- Passes 2 and 3: place the rest, most urgent first ---------------
+    # The work in front of you first, then the work that hasn't arrived yet.
     reserved = {d.task.uuid for d in decisions}
-    for t in sorted(tasks, key=lambda t: t.urgency, reverse=True):
-        if t.uuid in reserved:
-            continue
-        ts = task_settings[t.uuid]
-        earliest, deadline, due = _task_window(t, ts, now, tz)
-        slot = find_earliest_slot(
-            duration_minutes=t.estimate_minutes,
-            earliest_start=earliest,
-            deadline=deadline,
-            busy=busy,
-            tz=tz,
-            settings=ts,
-        )
-        if slot is None:
-            unschedulable.append(t)
-            continue
-        start_utc = slot[0].astimezone(timezone.utc)
-        end_utc = slot[1].astimezone(timezone.utc)
-        decision = Decision(
-            task=t,
-            start_utc=start_utc,
-            end_utc=end_utc,
-            # "Past due" means the chosen slot actually starts after the
-            # (end-of-day-adjusted) due date — the task could not be done in
-            # time and spilled. A `due:today` task scheduled later today is
-            # overdue but not past due, so it stays in the normal list.
-            past_due=start_utc > due,
-            keeper=keepers.get(t.uuid),
-            moved_reason=moved.get(t.uuid),
-        )
-        decisions.append(decision)
-        bisect.insort(busy, decision.interval)
+    for tier in (tasks, waiting):
+        for t in sorted(tier, key=lambda t: t.urgency, reverse=True):
+            if t.uuid in reserved:
+                continue
+            ts = task_settings[t.uuid]
+            earliest, deadline, due = _task_window(t, ts, now, tz)
+            slot = find_earliest_slot(
+                duration_minutes=t.estimate_minutes,
+                earliest_start=earliest,
+                deadline=deadline,
+                busy=busy,
+                tz=tz,
+                settings=ts,
+            )
+            if slot is None:
+                unschedulable.append(t)
+                continue
+            start_utc = slot[0].astimezone(timezone.utc)
+            end_utc = slot[1].astimezone(timezone.utc)
+            decision = Decision(
+                task=t,
+                start_utc=start_utc,
+                end_utc=end_utc,
+                # "Past due" means the chosen slot actually starts after the
+                # (end-of-day-adjusted) due date — the task could not be done
+                # in time and spilled. A `due:today` task scheduled later
+                # today is overdue but not past due, so it stays in the normal
+                # list.
+                past_due=start_utc > due,
+                keeper=keepers.get(t.uuid),
+                moved_reason=moved.get(t.uuid),
+            )
+            decisions.append(decision)
+            bisect.insort(busy, decision.interval)
 
     decisions.sort(key=lambda d: d.task.urgency, reverse=True)
     return decisions, unschedulable

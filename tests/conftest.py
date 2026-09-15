@@ -95,10 +95,16 @@ def task_row(
 
 
 class FakeTaskwarrior:
-    """Stands in for the `task export` subprocess call."""
+    """Stands in for the `task export` subprocess calls.
+
+    A run makes two: the report export, and the `+WAITING` one for deferred
+    tasks. They answer from separate row lists, because handing the same rows
+    to both would schedule every task twice.
+    """
 
     def __init__(self) -> None:
         self.rows: list[dict] = []
+        self.waiting_rows: list[dict] = []
         self.calls: list[list[str]] = []
         # Set to raise instead of returning rows.
         self.exit_code: Optional[int] = None
@@ -110,10 +116,11 @@ class FakeTaskwarrior:
             raise subprocess.CalledProcessError(
                 self.exit_code, argv, output="", stderr="boom"
             )
+        rows = self.waiting_rows if "+WAITING" in argv else self.rows
         payload = (
             self.stdout_override
             if self.stdout_override is not None
-            else json.dumps(self.rows)
+            else json.dumps(rows)
         )
         return subprocess.CompletedProcess(argv, 0, stdout=payload, stderr="")
 
@@ -378,6 +385,11 @@ class Harness:
     # Convenience passthroughs, so tests read as a story.
     def tasks(self, *rows: dict) -> "Harness":
         self.tw.rows = list(rows)
+        return self
+
+    def waiting(self, *rows: dict) -> "Harness":
+        """Tasks `task +WAITING export` returns: deferred until their wait."""
+        self.tw.waiting_rows = list(rows)
         return self
 
     def events(self, *evs: CalEvent) -> "Harness":

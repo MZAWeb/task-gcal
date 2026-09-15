@@ -30,6 +30,18 @@ def _override_flag(t: TaskInfo) -> str:
     return f"  [override: {t.overrides_raw}]" if t.overrides_raw else ""
 
 
+def _waiting_flag(t: TaskInfo, waiting_uuids) -> str:
+    """Marks a line for a task Taskwarrior is still hiding.
+
+    Without it, a block for something you can't find in `next` reads as a
+    bug, and a deferred task under "could not fit" reads as urgent when it
+    is the least urgent thing on the page. The calendar block itself is
+    deliberately ordinary: once the wait passes the task is just work, and
+    nothing about the event has to change.
+    """
+    return "  (waiting)" if t.uuid in waiting_uuids else ""
+
+
 def _moved_flag(p: Placement) -> str:
     """Why a block we'd already committed to had to be given up.
 
@@ -42,6 +54,7 @@ def _moved_flag(p: Placement) -> str:
 def print_report(
     *,
     placed,
+    waiting_uuids,
     no_estimate,
     no_due,
     unschedulable,
@@ -73,6 +86,7 @@ def print_report(
             print(
                 f"  [{p.action:<9}] {s}-{e}  u={p.task.urgency:5.2f}  "
                 f"{_est(p.task)}  {p.task.ref} {p.task.description}"
+                f"{_waiting_flag(p.task, waiting_uuids)}"
                 f"{_override_flag(p.task)}{_moved_flag(p)}"
             )
         print()
@@ -126,7 +140,8 @@ def print_report(
             due = t.due.astimezone(tz).strftime(fmt) if t.due else "(no due)"
             print(
                 f"  - u={t.urgency:5.2f}  {_est(t)}  due={due}  "
-                f"{t.ref} {t.description}{_override_flag(t)}"
+                f"{t.ref} {t.description}"
+                f"{_waiting_flag(t, waiting_uuids)}{_override_flag(t)}"
             )
         print()
 
@@ -170,5 +185,7 @@ def print_report(
             print(
                 f"  ! [{p.action:<9}] {s}-{e}  u={p.task.urgency:5.2f}  "
                 f"{_est(p.task)}  {p.task.ref} {p.task.description}  "
-                f"(due {due_s}){_override_flag(p.task)}{_moved_flag(p)}"
+                f"(due {due_s})"
+                f"{_waiting_flag(p.task, waiting_uuids)}"
+                f"{_override_flag(p.task)}{_moved_flag(p)}"
             )

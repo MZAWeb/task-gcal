@@ -1,9 +1,14 @@
 """Taskwarrior glue.
 
-We invoke `task export <report>` once and parse the JSON. This honors the
+We invoke `task export <report>` and parse the JSON. This honors the
 user's own report definition (filters, sort, etc.) while remaining a
 single subprocess and side-stepping the `_uuids` helper, which doesn't
 compose with report names.
+
+Each loader here is one export. Deferred tasks need their own
+(`load_waiting_tasks`), because every `next`-style report is written to hide
+them, and reviews need their own again (`load_all_tasks`), because history is
+mostly made of tasks no report shows any more.
 """
 
 from __future__ import annotations
@@ -208,6 +213,38 @@ def load_next_tasks(
     """
     rows = _export(["export", report], what=f"task export {report}")
     return _to_tasks(rows, estimate_uda=estimate_uda, override_uda=override_uda)
+
+
+# Taskwarrior's virtual tag for "deferred until its `wait` date". It is the
+# only filter that finds these: `status:waiting` is the pre-2.6 spelling, and
+# `status:pending` does *not* match them even though that is the status their
+# own export rows carry.
+WAITING_FILTER = "+WAITING"
+
+# A waiting task is normally pending, but nothing stops a completed or deleted
+# task from carrying a future `wait`, and `+WAITING` would hand it to us.
+_CLOSED = frozenset({"completed", "deleted"})
+
+
+def load_waiting_tasks(
+    *, estimate_uda: str = "estimate", override_uda: str = "gcal"
+) -> list[TaskInfo]:
+    """Tasks deferred until their `wait` date.
+
+    These are exactly the tasks a `next` report hides — that is what `wait`
+    is for — so they need their own export. The filter goes *before* the
+    command word, which is where Taskwarrior looks for one; `task export
+    +WAITING` silently exports everything instead.
+
+    No report name here, and that is the point: a report's filter is written
+    to exclude these, so there is nothing to honor. An active context still
+    applies, same as the report export, so a narrowed context narrows both.
+    """
+    rows = _export(
+        [WAITING_FILTER, "export"], what=f"task {WAITING_FILTER} export"
+    )
+    tasks = _to_tasks(rows, estimate_uda=estimate_uda, override_uda=override_uda)
+    return [t for t in tasks if t.status not in _CLOSED]
 
 
 def load_all_tasks(

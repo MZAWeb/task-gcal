@@ -131,13 +131,21 @@ def _check_taskwarrior(settings: Settings) -> Check:
             "install Taskwarrior, or fix PATH for the environment that runs "
             "this (cron and launchd don't share your shell's)",
         )
-    from .taskw import load_next_tasks
+    from .taskw import WAITING_FILTER, load_next_tasks, load_waiting_tasks
 
     try:
         tasks = load_next_tasks(
             settings.report,
             estimate_uda=settings.estimate_uda,
             override_uda=settings.override_uda,
+        )
+        waiting = (
+            load_waiting_tasks(
+                estimate_uda=settings.estimate_uda,
+                override_uda=settings.override_uda,
+            )
+            if settings.schedule_waiting
+            else []
         )
     except SystemExit as e:
         return Check("taskwarrior", FAIL, str(e))
@@ -147,6 +155,18 @@ def _check_taskwarrior(settings: Settings) -> Check:
         f"`task export {settings.report}` returned {len(tasks)} task(s), "
         f"{with_estimate} with a `{settings.estimate_uda}`"
     )
+    if settings.schedule_waiting:
+        # "Why has my waiting task not been booked?" is a question with three
+        # plausible answers, and two of them are visible from here.
+        bookable = sum(
+            1
+            for t in waiting
+            if t.estimate_minutes is not None and t.due is not None
+        )
+        detail += (
+            f"; `task {WAITING_FILTER} export` returned {len(waiting)}, "
+            f"{bookable} of them with both an estimate and a due date"
+        )
     if not tasks:
         return Check(
             "taskwarrior",
@@ -154,7 +174,7 @@ def _check_taskwarrior(settings: Settings) -> Check:
             detail,
             "an empty report is usually a wrong report name, an active "
             "context, or TASKDATA pointing elsewhere — scheduling refuses to "
-            "clear the calendar when this happens",
+            "clear the calendar when nothing comes back at all",
         )
     if with_estimate == 0:
         return Check(

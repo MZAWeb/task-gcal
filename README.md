@@ -8,12 +8,14 @@ Calendar, sorted by urgency.
 On every manual run:
 
 1. Pulls tasks from `task export next` (so it honors your own `next`
-   report definition).
+   report definition), plus `task +WAITING export` for the tasks that
+   report deliberately hides (see [Work that hasn't arrived
+   yet](#work-that-hasnt-arrived-yet)).
 2. Finds existing scheduler-owned events on your calendar (events
    tagged via `extendedProperties.private.scheduler=task-gcal`).
 3. Reconciles:
-   - Future events for tasks no longer in `next` (done, deleted, etc.)
-     are removed. Past events are kept as history.
+   - Future events for tasks neither list contains any more (done,
+     deleted, etc.) are removed. Past events are kept as history.
    - Blocks starting within `settle_days` (default 2) stay where they
      are, unless they've become invalid (see below). Everything else is
      placed at the earliest aligned working-hours slot of length
@@ -73,6 +75,29 @@ yet, so re-optimizing it is free. `task-gcal --reoptimize` (or
 earliest fit, as the tool used to. An in-progress block is always
 sticky, whatever `settle_days` says.
 
+### Work that hasn't arrived yet
+
+A `wait` date hides a task until the day it matters — and that is the
+day you find out the day is already full. So once everything in `next`
+has a slot, the tasks Taskwarrior is still hiding get theirs: somewhere
+between their `wait` date and their due date, which for `wait:due` (the
+usual way of writing "not yet") is one and the same day. The point is to hold the
+time open, not to remind you: the block looks like any other, and the
+run report marks the line `(waiting)` so a task you can't find in `next`
+doesn't read as a bug.
+
+They are booked *after* the report, however urgent Taskwarrior says they
+are, because work that hasn't arrived must never cost work that has a
+better slot. They need an `estimate` and a `due` date like anything
+else; the ones without are passed over in silence, since they're not
+something you've been asked to act on yet. If one of them already has a
+block and then loses its estimate, the block goes and the report says
+so.
+
+Once the wait passes, the task simply appears in `next` and its block
+carries on unchanged. `schedule_waiting = false` (or `--no-waiting`)
+schedules only what the report shows.
+
 ### The bulk-removal guard
 
 Every removal above is driven by what Taskwarrior reports, so one bad input
@@ -83,8 +108,8 @@ say from a cron job with a different environment) looks exactly like "you
 finished everything".
 
 So a run refuses to remove more than `removal_guard_ratio` (default half) of
-the unfinished events it owns, and refuses outright to clear anything when the
-task list came back empty. It reports what it held back and exits non-zero,
+the unfinished events it owns, and refuses outright to clear anything when
+nothing came back from Taskwarrior at all. It reports what it held back and exits non-zero,
 having still created and updated everything else. `--force` overrides it;
 `removal_guard_ratio = 1.0` disables it.
 
@@ -547,6 +572,7 @@ calendar_id         = "primary"    # or a specific calendar id
 event_color_id      = "9"          # 9 = Blueberry
 event_visibility    = "private"    # default | public | private | confidential
 report              = "next"
+schedule_waiting    = true         # also book tasks deferred by `wait`
 timezone            = "Europe/London"   # omit to use the system local zone
 overdue_horizon_days = 30          # how far ahead overdue tasks may land
 lookback_days       = 7            # how far back to scan for our own events
