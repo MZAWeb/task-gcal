@@ -1,8 +1,8 @@
 """Characterization tests for `reconcile`.
 
 These pin the behaviors recent commits paid for — in-progress pinning, the
-overdue horizon, duplicate cleanup, `scheduled`/`wait` floors, the midnight-due
-bump — so a refactor can't quietly undo one. They assert semantic outcomes
+overdue horizon, duplicate cleanup, `scheduled`/`wait` floors, due dates read
+as whole days — so a refactor can't quietly undo one. They assert semantic outcomes
 (what was created, moved, or deleted), not the exact prose of the report.
 
 `NOW` is Monday 2026-09-07 09:00 UTC, the first minute of a default working
@@ -216,8 +216,10 @@ def test_a_settled_block_yields_when_its_estimate_grows(harness):
 
 
 def test_a_settled_block_yields_when_the_due_date_moves_in_front_of_it(harness):
+    # Tomorrow's block against a due date of today: a whole day earlier, not
+    # an hour, because any time on the due day is in time.
     settled = managed_event(id="ev1", task_uuid="u1", start=at(1, 14), end=at(1, 15))
-    harness.tasks(task_row(uuid="u1", due=at(1, 12), estimate=60)).events(settled)
+    harness.tasks(task_row(uuid="u1", due=at(0, 12), estimate=60)).events(settled)
     res = harness.run()
 
     assert harness.gcal.event_for("u1").start == at(0, 9)
@@ -440,10 +442,10 @@ def test_a_floor_in_the_past_is_ignored(harness):
 
 
 # ---------------------------------------------------------------------------
-# The midnight-due bump
+# A due date is a day
 # ---------------------------------------------------------------------------
 
-def test_effective_due_bumps_a_midnight_due_to_the_end_of_that_day():
+def test_a_midnight_due_means_the_end_of_that_day():
     from zoneinfo import ZoneInfo
 
     tz = ZoneInfo("UTC")
@@ -451,12 +453,27 @@ def test_effective_due_bumps_a_midnight_due_to_the_end_of_that_day():
     assert got == at(1, 18)
 
 
-def test_effective_due_leaves_an_explicit_time_alone():
+def test_a_due_with_a_time_on_it_still_means_the_end_of_that_day():
+    # Times on due dates are an accident of how the date was typed or
+    # imported. Read literally, 08:59 means "you have until breakfast".
     from zoneinfo import ZoneInfo
 
     tz = ZoneInfo("UTC")
-    got = placement_mod.effective_due(at(1, 14, 30), tz, Settings(timezone="UTC"))
-    assert got == at(1, 14, 30)
+    for raw in (at(1, 8, 59), at(1, 14, 30), at(1, 23, 59)):
+        assert placement_mod.effective_due(
+            raw, tz, Settings(timezone="UTC")
+        ) == at(1, 18)
+
+
+def test_a_due_before_the_working_day_still_leaves_the_day_to_work_in(harness):
+    # `due:2026-09-08T08:59` with a 09:00 start had no window at all, so the
+    # task could never be placed.
+    harness.tasks(task_row(uuid="u1", due=at(1, 8, 59), estimate=60))
+    harness.busy((at(0, 9), at(0, 18)))
+    res = harness.run()
+
+    assert harness.gcal.created[0]["start"] == at(1, 9)
+    assert res.section("Could not fit") == []
 
 
 def test_a_date_only_due_can_still_be_scheduled_on_that_day(harness):

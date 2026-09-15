@@ -23,11 +23,14 @@ On every manual run:
      does not overlap any timed event on the calendar. A task's
      `scheduled` and/or `wait` date (whichever is later) is honored as
      an inclusive earliest-start, so the task is only ever placed
-     within `[scheduled, due]`. A `scheduled` date is read to the
-     minute; a `wait` date is read as a *day*, so the whole of that day
-     is available. (`wait:due` against a due date of 23:59 would
-     otherwise leave one second of it — and deadlines already round the
-     other way, a date-only due date meaning the end of that day.)
+     within `[scheduled, due]`.
+   - **Dates are whole days.** A due date means the end of that day and
+     a `wait` date means the start of it, whatever time of day the value
+     happens to carry — those times are an accident of how the date was
+     typed or imported (`due:monday` is local midnight, a task synced in
+     from elsewhere might say 08:59), and read literally they mean "you
+     have no time at all" and "you have until breakfast". Only
+     `scheduled` is read to the minute: that one is a moment you picked.
    - All-day events, "Free"-transparency events, and meetings you
      declined are ignored when computing busy time (matches Google's
      own free/busy semantics).
@@ -684,7 +687,7 @@ the run in both directions.
 
 Roughly half of it is characterization tests for the subtle scheduling rules
 — in-progress pinning, schedule stability, the overdue horizon, duplicate
-cleanup, `scheduled`/`wait` floors, the midnight-due bump — which exist so a
+cleanup, `scheduled`/`wait` floors, due dates read as whole days — which exist so a
 refactor can't quietly undo one. If you change behavior on purpose, expect to
 change a test and say why in the commit.
 

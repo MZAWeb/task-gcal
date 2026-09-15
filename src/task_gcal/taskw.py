@@ -81,10 +81,9 @@ class TaskInfo:
         whatever time of day the value carries is an accident of how the date
         was typed — `wait:due` against a due date of 23:59 would otherwise
         leave one second of Friday to work in. So the wait floor is the start
-        of its day, in `tz`. That mirrors `effective_due`, which rounds a
-        date-only due up to the end of its day: deadlines round up, waits
-        round down, and either way the day you named is a day you can work
-        in.
+        of its day, in `tz`. That mirrors `effective_due`, which reads a due
+        date as the end of its day: deadlines round up, waits round down, and
+        either way the day you named is a day you can work in.
         """
         floors = []
         if self.scheduled is not None:

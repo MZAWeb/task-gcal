@@ -10,7 +10,7 @@ from __future__ import annotations
 import bisect
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone, tzinfo
+from datetime import datetime, time, timedelta, timezone, tzinfo
 from typing import Optional, Sequence
 
 from .config import Settings, apply_overrides, parse_task_overrides
@@ -62,22 +62,27 @@ class Decision:
 
 
 def effective_due(due: datetime, tz, settings: Settings) -> datetime:
-    """Adjust the due date for scheduling.
+    """The moment a task is actually late: the end of its due *day*.
 
-    A due date with no time-of-day (local midnight, e.g. `due:monday`)
-    is treated as the end of that day's working window, so the task can
-    be scheduled during that day. Due dates with an explicit time are
-    used as-is.
+    A due date names a day, so anywhere in that day is in time. Whatever
+    time of day the value carries is an accident of how it was typed or
+    imported — `due:monday` is local midnight, a task synced in from
+    somewhere else might say 08:59 — and read literally those two mean "you
+    have no time at all" and "you have until breakfast". Neither is what
+    anyone meant by a date.
+
+    So every due date becomes the end of that day's working window, in `tz`.
+    It's the mirror of `TaskInfo.earliest_start`, which reads a `wait` date
+    as the start of its day: deadlines round up, waits round down, and the
+    day you named is a day you can work in.
     """
     local = due.astimezone(tz)
-    if local.hour == 0 and local.minute == 0 and local.second == 0:
-        # Offset from the midnight we're already standing on: `work_end_hour`
-        # is exclusive and may be 24, which `replace(hour=...)` can't express.
-        end_of_day = local.replace(microsecond=0) + timedelta(
-            hours=settings.work_end_hour
-        )
-        return end_of_day.astimezone(timezone.utc)
-    return due
+    # Built as an offset from that day's midnight rather than with
+    # `replace(hour=...)`: `work_end_hour` is exclusive and may be 24, which
+    # a time-of-day can't express.
+    midnight = datetime.combine(local.date(), time(0, 0), tzinfo=tz)
+    end_of_day = midnight + timedelta(hours=settings.work_end_hour)
+    return end_of_day.astimezone(timezone.utc)
 
 
 def _keeper_rank(ev: CalEvent, now: datetime) -> tuple[int, float]:
@@ -169,13 +174,14 @@ def _task_window(
     effective deadline is pushed out to give the slot search room. The task
     stays "overdue" in the user's eyes and the report flags it.
 
-    Overdue-ness is judged from the *raw* due date, not the end-of-day
-    adjusted one: a date-only `due:today` is midnight today, which has
-    already passed (Taskwarrior sets +OVERDUE for it too). Using the bumped
-    value here would mask that and drop the task ("could not fit before due
-    date") instead of letting it spill past today. The earliest-slot search
-    still prefers today when a slot is free; the horizon only matters once
-    today fills.
+    Overdue-ness is judged from the *raw* due date, not the end-of-day one:
+    `due:today` is midnight today, which has already passed, and Taskwarrior
+    agrees — it sets +OVERDUE. Judging from the end of the day instead would
+    give a task due today only the hours left in it, and drop it ("could not
+    fit before due date") the moment they filled. The earliest-slot search
+    still prefers today whenever a slot is free, so a task due today lands
+    today if it can; the horizon only matters once today is full, and then
+    spilling past the date beats not being scheduled at all.
     """
     due = effective_due(t.due, tz, ts)
 
