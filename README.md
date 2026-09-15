@@ -489,6 +489,44 @@ damaged".
    task-gcal --dry-run    # preview
    ```
 
+### Updating your installed copy
+
+`uv tool install .` puts a *copy* of the code in uv's own directory, so
+changes in your checkout don't reach the `task-gcal` on your `PATH` until
+you install again. To pick up the latest:
+
+```
+cd /path/to/task-gcal
+uv tool install --force .
+```
+
+`--force` is the part that matters. Without it, uv compares version
+numbers, sees the same `__version__`, decides nothing has changed, and
+leaves the old code in place — which looks exactly like your fix not
+working.
+
+`which task-gcal` should point at `~/.local/bin/task-gcal`, a symlink into
+uv's tool directory, so reinstalling never changes your `PATH`. To check
+that the installed copy really is your current source:
+
+```
+diff -rq src/task_gcal \
+  "$(ls -d "$(uv tool dir)"/task-gcal/lib/python*/site-packages)/task_gcal" \
+  -x __pycache__
+```
+
+Silence means they match. (`uv tool dir` is worth asking rather than
+hardcoding — it follows `XDG_DATA_HOME` if you've set one.)
+
+If you'd rather stop reinstalling altogether, install from the checkout
+instead of copying it:
+
+```
+uv tool install --force --editable .
+```
+
+Then edits are live and you only reinstall when dependencies change.
+
 ## Configuration
 
 All defaults can be overridden in `~/.config/task-gcal/config.toml`
