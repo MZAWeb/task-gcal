@@ -12,7 +12,7 @@ import json
 import shutil
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone, tzinfo
 from typing import Optional
 
 from dateutil import parser as dtparser
@@ -64,14 +64,30 @@ class TaskInfo:
         """
         return f"#{self.id}" if self.id else self.uuid[:8]
 
-    @property
-    def earliest_start(self) -> Optional[datetime]:
+    def earliest_start(self, tz: tzinfo) -> Optional[datetime]:
         """Floor on when this task may be scheduled (tz-aware UTC).
 
-        Both `scheduled` and `wait` mean "not before this date"; the later
-        of the two wins. ``None`` when neither is set.
+        Both `scheduled` and `wait` mean "not before this"; the later of the
+        two wins, and ``None`` means neither is set.
+
+        The two are read at different granularity, deliberately. A
+        `scheduled` date is a moment someone picked. A `wait` date is a
+        *day*: `wait:friday` and `wait:due` both mean "from Friday on", and
+        whatever time of day the value carries is an accident of how the date
+        was typed — `wait:due` against a due date of 23:59 would otherwise
+        leave one second of Friday to work in. So the wait floor is the start
+        of its day, in `tz`. That mirrors `effective_due`, which rounds a
+        date-only due up to the end of its day: deadlines round up, waits
+        round down, and either way the day you named is a day you can work
+        in.
         """
-        floors = [d for d in (self.scheduled, self.wait) if d is not None]
+        floors = []
+        if self.scheduled is not None:
+            floors.append(self.scheduled)
+        if self.wait is not None:
+            local = self.wait.astimezone(tz)
+            day_start = datetime.combine(local.date(), time(0, 0), tzinfo=tz)
+            floors.append(day_start.astimezone(timezone.utc))
         return max(floors) if floors else None
 
 

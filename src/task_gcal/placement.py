@@ -182,7 +182,7 @@ def _task_window(
     # Honor `scheduled`/`wait`: never place the task before that date. The
     # floor is inclusive, so a slot may start on the date.
     earliest = now
-    floor = t.earliest_start
+    floor = t.earliest_start(tz)
     if floor is not None and floor > earliest:
         earliest = floor
 

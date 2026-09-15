@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -130,24 +131,35 @@ def test_ref_falls_back_to_a_uuid_prefix():
 
 
 def test_earliest_start_is_none_without_scheduled_or_wait():
-    assert _info().earliest_start is None
+    assert _info().earliest_start(UTC) is None
 
 
-def test_earliest_start_uses_scheduled():
-    when = datetime(2026, 9, 8, tzinfo=UTC)
-    assert _info(scheduled=when).earliest_start == when
+def test_earliest_start_uses_scheduled_to_the_minute():
+    when = datetime(2026, 9, 8, 14, 30, tzinfo=UTC)
+    assert _info(scheduled=when).earliest_start(UTC) == when
 
 
-def test_earliest_start_uses_wait():
-    when = datetime(2026, 9, 8, tzinfo=UTC)
-    assert _info(wait=when).earliest_start == when
+def test_earliest_start_uses_the_start_of_the_wait_day():
+    # A wait date names a day, so the whole of that day is available —
+    # `wait:due` against a 23:59 due date must not leave one second of it.
+    when = datetime(2026, 9, 8, 23, 59, 59, tzinfo=UTC)
+    assert _info(wait=when).earliest_start(UTC) == datetime(2026, 9, 8, tzinfo=UTC)
+
+
+def test_the_wait_day_is_the_day_it_is_in_the_scheduling_timezone():
+    # 23:00 UTC on the 8th is already 01:00 on the 9th in Madrid, so the day
+    # to work in is the 9th there — which starts an hour *before* the wait.
+    when = datetime(2026, 9, 8, 23, 0, tzinfo=UTC)
+    assert _info(wait=when).earliest_start(ZoneInfo("Europe/Madrid")) == datetime(
+        2026, 9, 8, 22, 0, tzinfo=UTC
+    )
 
 
 def test_earliest_start_takes_the_later_of_scheduled_and_wait():
     early = datetime(2026, 9, 8, tzinfo=UTC)
     late = datetime(2026, 9, 20, tzinfo=UTC)
-    assert _info(scheduled=early, wait=late).earliest_start == late
-    assert _info(scheduled=late, wait=early).earliest_start == late
+    assert _info(scheduled=early, wait=late).earliest_start(UTC) == late
+    assert _info(scheduled=late, wait=early).earliest_start(UTC) == late
 
 
 # ---------------------------------------------------------------------------

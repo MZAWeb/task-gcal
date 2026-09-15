@@ -402,6 +402,17 @@ def test_wait_date_is_an_earliest_start(harness):
     assert harness.gcal.created[0]["start"] == at(2, 9)
 
 
+def test_a_wait_on_the_due_date_still_leaves_that_day_to_work_in(harness):
+    # `wait:due` is the common case, and read as an instant it leaves one
+    # second of Wednesday. The wait date names a day, so the day is usable.
+    end_of_wed = at(2, 23, 59)
+    harness.tasks(
+        task_row(uuid="u1", due=end_of_wed, estimate=60, wait=end_of_wed)
+    )
+    harness.run()
+    assert harness.gcal.created[0]["start"] == at(2, 9)
+
+
 def test_the_later_of_scheduled_and_wait_wins(harness):
     harness.tasks(
         task_row(

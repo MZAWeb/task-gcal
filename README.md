@@ -21,7 +21,11 @@ On every manual run:
      does not overlap any timed event on the calendar. A task's
      `scheduled` and/or `wait` date (whichever is later) is honored as
      an inclusive earliest-start, so the task is only ever placed
-     within `[scheduled, due]`.
+     within `[scheduled, due]`. A `scheduled` date is read to the
+     minute; a `wait` date is read as a *day*, so the whole of that day
+     is available. (`wait:due` against a due date of 23:59 would
+     otherwise leave one second of it — and deadlines already round the
+     other way, a date-only due date meaning the end of that day.)
    - All-day events, "Free"-transparency events, and meetings you
      declined are ignored when computing busy time (matches Google's
      own free/busy semantics).
