@@ -58,7 +58,7 @@ from .review.periods import Period
 
 
 @dataclass(frozen=True)
-class _Answer:
+class Answer:
     """One offered answer, and the `(outcome, reason)` pair it records."""
 
     key: str
@@ -73,33 +73,33 @@ class _Answer:
 # The five things that actually happen, in the words you'd use out loud. Order
 # is roughly how often each comes up. Each maps to a two-dimensional record,
 # so the friction mix and its coverage are unchanged by the shorter prompt.
-_ANSWERS: tuple[_Answer, ...] = (
-    _Answer(
+ANSWERS: tuple["Answer", ...] = (
+    Answer(
         "1",
         "Made a start, but it needs more time than I set aside",
         OUTCOME_PARTIAL,
         REASON_ESTIMATE,
         ask_minutes=True,
     ),
-    _Answer(
+    Answer(
         "2",
         "Didn't feel like starting it, so I put it off",
         OUTCOME_NOT_STARTED,
         REASON_AVOIDED,
     ),
-    _Answer(
+    Answer(
         "3",
         "Was busy with something else — needs rescheduling",
         OUTCOME_NOT_STARTED,
         REASON_CAPACITY,
     ),
-    _Answer(
+    Answer(
         "4",
         "Blocked on someone or something else, so it has to wait",
         OUTCOME_NOT_STARTED,
         REASON_BLOCKED,
     ),
-    _Answer(
+    Answer(
         "5",
         "Did this session's work; there's a follow-up still to come",
         OUTCOME_PROGRESSED,
@@ -108,7 +108,7 @@ _ANSWERS: tuple[_Answer, ...] = (
     ),
 )
 
-_BY_KEY = {answer.key: answer for answer in _ANSWERS}
+_BY_KEY = {answer.key: answer for answer in ANSWERS}
 
 
 @dataclass
@@ -171,7 +171,7 @@ def checkin(
             "Run this from a terminal to answer them.\n"
         )
         for episode in episodes:
-            console.write(_header(episode, settings.resolve_timezone()))
+            console.write(header(episode, settings.resolve_timezone()))
         return 0, summary
 
     console.write(
@@ -182,7 +182,7 @@ def checkin(
 
     tz = settings.resolve_timezone()
     for episode in episodes:
-        console.write(_header(episode, tz))
+        console.write(header(episode, tz))
         try:
             reflection = _ask(episode, console=console, now=now)
         except _Abort:
@@ -228,20 +228,22 @@ def open_episodes(facts, *, since: datetime, now: datetime) -> list[Episode]:
     )
 
 
-def _header(episode: Episode, tz) -> str:
-    task = episode.task
+def when(episode: Episode, tz) -> str:
+    """When the episode began: its first block's start, else its first day."""
     blocks = episode.blocks
-    when = (
-        f"{blocks[0].start.astimezone(tz):%a %d %b %H:%M}"
-        if blocks and blocks[0].start
-        else f"{episode.first_at.astimezone(tz):%a %d %b}"
-    )
+    if blocks and blocks[0].start:
+        return f"{blocks[0].start.astimezone(tz):%a %d %b %H:%M}"
+    return f"{episode.first_at.astimezone(tz):%a %d %b}"
+
+
+def header(episode: Episode, tz) -> str:
+    task = episode.task
     planned = (
         f" (estimated {task.estimate_minutes}m)"
         if task.estimate_minutes
         else ""
     )
-    lines = [f"\n{when}  {task.description}{planned}"]
+    lines = [f"\n{when(episode, tz)}  {task.description}{planned}"]
     for line in episode.lines(tz):
         lines.append(f"  {line}")
     # Labelled as a suggestion, because that is all it is.
@@ -252,7 +254,7 @@ def _header(episode: Episode, tz) -> str:
 def _ask(
     episode: Episode, *, console: Console, now: datetime
 ) -> Optional[Reflection]:
-    for answer in _ANSWERS:
+    for answer in ANSWERS:
         console.write(f"    {answer.key}. {answer.label}")
     chosen = _ask_answer(console)
     if chosen is None:
@@ -265,20 +267,39 @@ def _ask(
     )
     note = _ask_text(console, "  Anything worth remembering? ")
 
-    return Reflection(
-        episode=episode.key,
-        task_uuid=episode.task.uuid,
-        outcome=chosen.outcome,
-        reason=chosen.reason,
-        at=now,
-        covers_until=episode.covers_until,
-        actual_minutes=actual,
-        planned_minutes=episode.planned_minutes,
-        note=note,
+    return reflection_for(
+        episode, chosen, now=now, actual_minutes=actual, note=note
     )
 
 
-def _ask_answer(console: Console) -> Optional[_Answer]:
+def reflection_for(
+    episode: Episode,
+    answer: Answer,
+    *,
+    now: datetime,
+    actual_minutes: Optional[int] = None,
+    note: Optional[str] = None,
+) -> Reflection:
+    """The record one answer to one episode becomes.
+
+    Shared by the line prompt and the TUI, so the two can't disagree about
+    what an answer means. Minutes are dropped for an answer that doesn't ask
+    for them: time spent on something you didn't start is not a number.
+    """
+    return Reflection(
+        episode=episode.key,
+        task_uuid=episode.task.uuid,
+        outcome=answer.outcome,
+        reason=answer.reason,
+        at=now,
+        covers_until=episode.covers_until,
+        actual_minutes=actual_minutes if answer.ask_minutes else None,
+        planned_minutes=episode.planned_minutes,
+        note=(note or "").strip() or None,
+    )
+
+
+def _ask_answer(console: Console) -> Optional[Answer]:
     while True:
         raw = _read(console, "  Which of these? ").strip().lower()
         if not raw:
