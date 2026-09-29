@@ -96,7 +96,7 @@ class CheckinScreen(Screen[CheckinSummary]):
     CheckinScreen #switcher { height: 1fr; }
     CheckinScreen #main { height: 1fr; }
     CheckinScreen #left {
-        width: 40%; max-width: 64; min-width: 28;
+        width: 36%; max-width: 64; min-width: 26;
         border: round $panel-lighten-2; border-title-color: $text-muted;
     }
     CheckinScreen #left:focus-within { border: round $accent; border-title-color: $accent; }
@@ -110,7 +110,7 @@ class CheckinScreen(Screen[CheckinSummary]):
     CheckinScreen #episode { height: auto; margin-bottom: 1; }
     CheckinScreen .question { text-style: bold; margin-top: 1; }
     CheckinScreen #answers {
-        height: auto; max-height: 7; border: none; padding: 0;
+        height: auto; border: none; padding: 0;
         background: transparent;
     }
     CheckinScreen #answers:focus { border: none; }
@@ -257,7 +257,7 @@ class CheckinScreen(Screen[CheckinSummary]):
         legend.append(f"{_GLYPH_OPEN} ", style="yellow")
         legend.append("open  ")
         legend.append(f"{_GLYPH_SAVED} ", style="green")
-        legend.append("recorded  ")
+        legend.append("saved  ")
         legend.append(f"{_GLYPH_SKIPPED} ", style="dim")
         legend.append("skipped")
         return legend
@@ -341,10 +341,14 @@ class CheckinScreen(Screen[CheckinSummary]):
         options = []
         for answer in ANSWERS:
             picked = chosen is not None and chosen.key == answer.key
-            prompt = Text()
-            prompt.append("● " if picked else "○ ", style="bold green" if picked else "dim")
-            prompt.append(f"{answer.key}  ", style="bold")
-            prompt.append(answer.label, style="bold" if picked else "")
+            # A grid, so a label that wraps on a narrow terminal stays in its
+            # own column instead of running back under the number.
+            prompt = Table.grid(padding=(0, 1))
+            prompt.add_column(no_wrap=True)
+            prompt.add_column(ratio=1)
+            marker = Text("● " if picked else "○ ", style="bold green" if picked else "dim")
+            marker.append(answer.key, style="bold")
+            prompt.add_row(marker, Text(answer.label, style="bold" if picked else ""))
             options.append(Option(prompt, id=answer.key))
         return options
 
