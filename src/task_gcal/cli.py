@@ -329,6 +329,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Reach further back when catching up (default: the last "
              f"{DEFAULT_CHECKIN_DAYS} days).",
     )
+    checkin_p.add_argument(
+        "--plain", action="store_true",
+        help="Ask line by line instead of opening the full-screen check-in "
+             "(the default on a terminal).",
+    )
     checkin_p.set_defaults(func=_run_checkin)
 
     doctor_p = sub.add_parser(
@@ -387,12 +392,19 @@ def _run_review(args, settings) -> int:
 
 
 def _run_checkin(args, settings) -> int:
-    from .checkin import checkin
+    from . import tui
 
     since = None
     if args.since is not None:
         tz = settings.resolve_timezone()
         since = args.since.replace(tzinfo=tz).astimezone(timezone.utc)
+    if tui.wanted(plain=args.plain):
+        from .tui.checkin_app import run as run_tui
+
+        return run_tui(settings, since=since)
+
+    from .checkin import checkin
+
     code, _summary = checkin(settings, since=since)
     return code
 

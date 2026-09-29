@@ -264,6 +264,54 @@ def test_checkin_accepts_a_since_date():
     assert args.since.month == 8
 
 
+def test_checkin_can_be_asked_for_plainly():
+    parser = cli_mod._build_parser()
+    assert parser.parse_args(["checkin", "--plain"]).plain is True
+    assert parser.parse_args(["checkin"]).plain is False
+
+
+# ---------------------------------------------------------------------------
+# When the full-screen UI opens
+# ---------------------------------------------------------------------------
+
+class _Tty:
+    def __init__(self, tty: bool) -> None:
+        self._tty = tty
+
+    def isatty(self) -> bool:
+        return self._tty
+
+
+@pytest.fixture
+def terminal(monkeypatch):
+    def set_(*, stdin=True, stdout=True, term="xterm-256color"):
+        from task_gcal import tui
+
+        monkeypatch.setattr(tui.sys, "stdin", _Tty(stdin))
+        monkeypatch.setattr(tui.sys, "stdout", _Tty(stdout))
+        monkeypatch.setenv("TERM", term)
+        return tui.wanted
+
+    return set_
+
+
+def test_a_real_terminal_gets_the_full_screen_ui(terminal):
+    assert terminal()() is True
+
+
+def test_plain_always_wins(terminal):
+    assert terminal()(plain=True) is False
+
+
+def test_a_pipe_on_either_side_gets_plain_output(terminal):
+    assert terminal(stdout=False)() is False
+    assert terminal(stdin=False)() is False
+
+
+def test_a_dumb_terminal_gets_plain_output(terminal):
+    assert terminal(term="dumb")() is False
+
+
 def test_doctor_takes_no_arguments_of_its_own():
     args = cli_mod._build_parser().parse_args(["doctor"])
     assert callable(args.func)
@@ -317,7 +365,8 @@ def test_scheduling_never_imports_the_review_code():
     probe = (
         "import sys; import task_gcal.cli as cli;"
         "cli._build_parser();"
-        "leaked=[m for m in sys.modules if m.startswith('task_gcal.review')];"
+        "leaked=[m for m in sys.modules if m.startswith(('task_gcal.review',"
+        "'task_gcal.tui', 'textual'))];"
         "print(leaked)"
     )
     out = subprocess.run(
