@@ -312,6 +312,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--open", dest="open_in_browser", action="store_true",
         help="Open the rendered report in a browser (implies a file).",
     )
+    review_p.add_argument(
+        "--plain", action="store_true",
+        help="Print the report instead of opening the full-screen review "
+             "(the default on a terminal). Implied by --format, --output "
+             "and --open.",
+    )
     review_p.set_defaults(func=_run_review, week=None, month=None)
 
     checkin_p = sub.add_parser(
@@ -372,23 +378,29 @@ def _period_choice(args) -> tuple[str, Optional[date]]:
 def _run_review(args, settings) -> int:
     from pathlib import Path
 
+    from . import tui
     from .review import ReviewRequest, run
 
     kind, anchor = _period_choice(args)
-    return run(
-        settings,
-        ReviewRequest(
-            kind=kind,
-            offset=args.last,
-            anchor=anchor,
-            sections=tuple(args.sections or ()),
-            all_sections=args.all_sections,
-            fmt=args.fmt,
-            open_in_browser=args.open_in_browser,
-            output=Path(args.output) if args.output else None,
-            triage=args.triage,
-        ),
+    request = ReviewRequest(
+        kind=kind,
+        offset=args.last,
+        anchor=anchor,
+        sections=tuple(args.sections or ()),
+        all_sections=args.all_sections,
+        fmt=args.fmt,
+        open_in_browser=args.open_in_browser,
+        output=Path(args.output) if args.output else None,
+        triage=args.triage,
     )
+    # A format, a file or a browser is a request for a document, and a
+    # document is what the plain path makes.
+    document = args.fmt != "terminal" or args.output or args.open_in_browser
+    if not document and tui.wanted(plain=args.plain):
+        from .tui.review_app import run as run_tui
+
+        return run_tui(settings, request)
+    return run(settings, request)
 
 
 def _run_checkin(args, settings) -> int:

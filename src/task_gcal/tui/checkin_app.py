@@ -556,32 +556,47 @@ class CheckinApp(App[CheckinSummary]):
         self.push_screen(self._screen, callback=self.exit)
 
 
-def run(settings, *, since: Optional[datetime] = None) -> int:
-    """Open the check-in screen against the real data. Returns an exit code."""
+
+def checkin_loader(
+    settings, *, since: Optional[datetime] = None, seen: Optional[dict] = None
+) -> Loader:
+    """A loader over the real calendar, Taskwarrior and reflections.
+
+    The window is fixed when the loader is *called*, so a check-in opened from
+    a review that's been on screen for an hour still reaches up to now.
+    """
     from datetime import timedelta
 
-    from .. import reflections as reflections_mod
     from ..checkin import collect_window, open_episodes
     from ..review.episodes import DEFAULT_SINCE_DAYS
 
-    now = datetime.now(timezone.utc)
-    since = since or (now - timedelta(days=DEFAULT_SINCE_DAYS))
     tz = settings.resolve_timezone()
-    seen: dict[str, bool] = {}
 
-    def loader() -> CheckinData:
-        facts = collect_window(settings, since=since, now=now)
-        seen["calendar_ok"] = facts.calendar_ok
+    def load() -> CheckinData:
+        now = datetime.now(timezone.utc)
+        start = since or (now - timedelta(days=DEFAULT_SINCE_DAYS))
+        facts = collect_window(settings, since=start, now=now)
+        if seen is not None:
+            seen["calendar_ok"] = facts.calendar_ok
         episodes = (
-            open_episodes(facts, since=since, now=now) if facts.calendar_ok else []
+            open_episodes(facts, since=start, now=now) if facts.calendar_ok else []
         )
         return CheckinData(
             episodes=tuple(episodes),
-            since=since,
+            since=start,
             tz=tz,
             calendar_ok=facts.calendar_ok,
         )
 
+    return load
+
+
+def run(settings, *, since: Optional[datetime] = None) -> int:
+    """Open the check-in screen against the real data. Returns an exit code."""
+    from .. import reflections as reflections_mod
+
+    seen: dict[str, bool] = {}
+    loader = checkin_loader(settings, since=since, seen=seen)
     summary = CheckinApp(loader, reflections_mod.append).run()
     if summary is not None and summary.found:
         left = summary.found - summary.recorded

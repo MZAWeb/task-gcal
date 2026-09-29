@@ -312,6 +312,45 @@ def test_a_dumb_terminal_gets_plain_output(terminal):
     assert terminal(term="dumb")() is False
 
 
+@pytest.fixture
+def review_route(monkeypatch):
+    """Which path `review` takes on a terminal, without running either."""
+    from task_gcal import review as review_pkg
+    from task_gcal import tui
+    from task_gcal.tui import review_app
+
+    taken = []
+    monkeypatch.setattr(tui, "wanted", lambda *, plain=False: not plain)
+    monkeypatch.setattr(review_pkg, "run", lambda *a, **k: taken.append("plain") or 0)
+    monkeypatch.setattr(review_app, "run", lambda *a, **k: taken.append("tui") or 0)
+
+    def route(*argv):
+        cli_mod.main(["review", *argv])
+        return taken.pop()
+
+    return route
+
+
+def test_review_opens_the_screen_on_a_terminal(review_route):
+    assert review_route() == "tui"
+    assert review_route("--section", "time") == "tui"
+    assert review_route("--triage") == "tui"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ("--plain",),
+        ("--format", "markdown"),
+        ("--format", "json"),
+        ("--output", "/dev/null"),
+        ("--open",),
+    ],
+)
+def test_asking_for_a_document_gets_the_plain_report(review_route, argv):
+    assert review_route(*argv) == "plain"
+
+
 def test_doctor_takes_no_arguments_of_its_own():
     args = cli_mod._build_parser().parse_args(["doctor"])
     assert callable(args.func)
