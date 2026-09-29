@@ -241,6 +241,33 @@ def test_triage_and_all_are_review_flags():
     assert (args.triage, args.all_sections) == (True, True)
 
 
+def test_last_week_is_one_week_before_this_one():
+    from task_gcal.cli import _offset, _period_choice
+
+    args = review_args("--last-week")
+    assert _period_choice(args) == ("week", None)
+    assert _offset(args) == 1
+    assert _offset(review_args("--last-week", "--last", "2")) == 3
+
+
+def test_last_month_is_what_month_already_means():
+    from task_gcal.cli import _offset, _period_choice
+
+    args = review_args("--last-month")
+    assert _period_choice(args) == ("month", None)
+    assert _offset(args) == 0
+
+
+def test_the_shortcuts_exclude_the_other_period_flags():
+    for pair in (
+        ("--last-week", "--month"),
+        ("--last-month", "--week"),
+        ("--last-week", "--last-month"),
+    ):
+        with pytest.raises(SystemExit):
+            review_args(*pair)
+
+
 def test_review_flags_default_to_off():
     args = review_args()
     assert (args.triage, args.all_sections) == (False, False)

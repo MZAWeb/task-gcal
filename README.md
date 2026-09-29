@@ -125,6 +125,8 @@ task-gcal review --month                  # the month that just finished
 task-gcal review --month 2026-09          # a month by name, running or not
 task-gcal review --week 2026-08-17        # the week containing that day
 task-gcal review --week --last 1          # the week before this one
+task-gcal review --last-week              # the same, shorter
+task-gcal review --last-month             # the same as --month
 task-gcal review --week --all             # every section, in full
 task-gcal review --week --section time
 task-gcal review --triage                 # what needs a decision
@@ -146,6 +148,8 @@ containing today. You read a *monthly* one once the month is over, so
 `--month` means the last **complete** month. Nobody sits down on the 4th to
 reflect on four days. Either can be named outright (`--month 2026-09`,
 `--week 2026-08-17`), and `--last N` counts N further back than the default.
+`--last-week` is `--week --last 1`. `--last-month` is plain `--month`,
+because the default month is already last month.
 
 ```text
 Week 37 · 4 of 7 days seen
@@ -245,7 +249,8 @@ pinned at the bottom whatever you're reading.
 | `q` | Quit |
 
 Periods already viewed are cached, so moving back and forth is instant.
-`--week`, `--month`, `--last`, `--section` and `--triage` choose where the
+`--week`, `--month`, `--last-week`, `--last-month`, `--last`, `--section`
+and `--triage` choose where the
 screen opens.
 
 ### `task-gcal review --triage`

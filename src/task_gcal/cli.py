@@ -280,6 +280,15 @@ def _build_parser() -> argparse.ArgumentParser:
              "month, because nobody reviews four days of September; pass "
              "2026-09 to report on one that is still running.",
     )
+    span.add_argument(
+        "--last-week", dest="last_week", action="store_true",
+        help="The week before this one. Same as --week --last 1.",
+    )
+    span.add_argument(
+        "--last-month", dest="last_month", action="store_true",
+        help="The month before this one. Same as --month, which already "
+             "means the last complete month.",
+    )
     review_p.add_argument(
         "--last", type=int, default=0, metavar="N",
         help="Report N periods further back than the default: --last 1 is the "
@@ -360,6 +369,10 @@ def _period_choice(args) -> tuple[str, Optional[date]]:
     spelled `--month 2026-08-17`. Naming beats counting — nobody should have to
     work out that August is three periods back.
     """
+    if getattr(args, "last_week", False):
+        return "week", None
+    if getattr(args, "last_month", False):
+        return "month", None
     kind = "month" if args.month is not None else "week"
     raw = (args.month if kind == "month" else args.week) or ""
     if not raw:
@@ -375,6 +388,16 @@ def _period_choice(args) -> tuple[str, Optional[date]]:
     )
 
 
+def _offset(args) -> int:
+    """Periods back from the default. `--last-week` is one more than `--week`.
+
+    `--last-month` adds nothing: the default month is already the last
+    complete one, so "last month" is what `--month` means. `--last N` still
+    counts further back from either shortcut.
+    """
+    return args.last + (1 if getattr(args, "last_week", False) else 0)
+
+
 def _run_review(args, settings) -> int:
     from pathlib import Path
 
@@ -384,7 +407,7 @@ def _run_review(args, settings) -> int:
     kind, anchor = _period_choice(args)
     request = ReviewRequest(
         kind=kind,
-        offset=args.last,
+        offset=_offset(args),
         anchor=anchor,
         sections=tuple(args.sections or ()),
         all_sections=args.all_sections,
