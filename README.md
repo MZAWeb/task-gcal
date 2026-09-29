@@ -133,8 +133,11 @@ task-gcal review --week --format json
 task-gcal review --month --format html --open
 ```
 
-A review is a **document, not an application**: read-only,
-non-interactive, and one screen by default.
+A review is a **document, not an application**: read-only and one screen
+by default. On a terminal, bare `task-gcal review` opens it full-screen so
+you can browse it (see [The full-screen review](#the-full-screen-review));
+`--plain`, a pipe, `--format`, `--output` and `--open` all print the
+document instead.
 
 The two defaults differ because the two reviews are read at different
 moments. You read a *weekly* review while you're still in the week — Friday
@@ -220,6 +223,31 @@ The names are the plain ones, on purpose. Internally they keep precise
 names (`capacity`, `follow_through`, `stagnation`) — but "stagnation" is a
 word about a person, and "stuck" is a word about a task.
 
+### The full-screen review
+
+The same review, with the section names as the navigation, so you don't
+need to remember any of them. On the left are the sections, grouped the
+way the detailed report groups them. `•` marks one with a suggestion and
+`–` one that couldn't be measured. On the right is the overview (the
+one-screen summary) or the section you're on: what it means, its detail,
+and a bar for each coverage denominator. The closing *Look at* line stays
+pinned at the bottom whatever you're reading.
+
+| Key | Does |
+| --- | --- |
+| `↑`/`↓`, `Enter` | Move through sections; Enter moves into the page |
+| `←`/`h`, `→`/`l` | The previous or next week or month |
+| `w`, `m` | Switch to weeks or months, staying at the same moment |
+| `t` | Back to the default period |
+| `c` | Open the check-in on top; the review refreshes after |
+| `o` | Open the full HTML report in a browser |
+| `r` | Fetch again, for changes made since it opened |
+| `q` | Quit |
+
+Periods already viewed are cached, so moving back and forth is instant.
+`--week`, `--month`, `--last`, `--section` and `--triage` choose where the
+screen opens.
+
 ### `task-gcal review --triage`
 
 Lists the stuck tasks with the exact commands that would resolve each,
@@ -233,6 +261,10 @@ Stuck (3):
 
 Nothing above has been run. Paste the ones you agree with.
 ```
+
+In the full-screen review, *Triage* at the foot of the list shows the
+same thing. Enter or `y` **copies** the highlighted command. It still
+runs nothing.
 
 Taskwarrior stays the source of truth: this tool never writes to it.
 That's also what makes triage safe to run casually — there's no
@@ -303,6 +335,26 @@ What it deliberately won't do:
 
 Everything is skippable, answers can be corrected by answering again, and
 it writes only its own file — never Taskwarrior.
+
+On a terminal it opens full-screen, and the prompt above is what
+`--plain` (or a pipe) gets. The open episodes sit in a list beside the
+question, so you can answer them in any order, skip around, and go back
+to correct one:
+
+| Key | Does |
+| --- | --- |
+| `1`-`5` | Pick what happened |
+| `Enter` | Next field, then save and move to the next open episode |
+| `Ctrl+S` | Save now |
+| `s` | Skip; it stays open for next time |
+| `Esc`, `↑`/`↓` | Back to the list; move between episodes |
+| `q` | Finish. What's saved is kept, the rest stays open |
+
+The fast path is two keys, a number and Enter. An answer that involved
+work asks for minutes first, and leaving that blank means unknown. It
+never falls back to the estimate. A half-typed answer survives moving
+away and back, and a correction appends a later line, as it does on the
+command line.
 
 ### `task-gcal doctor`
 
@@ -703,8 +755,14 @@ would break either silently:
 
 - The journal's write path can't read history (`test_journal.py`), so a
   corrupt journal can never produce a wrong calendar.
-- Bare `task-gcal` doesn't import any review code (`test_cli.py`), so the
-  fast path stays fast as the analytical side grows.
+- Bare `task-gcal` doesn't import any review or UI code, Textual
+  included (`test_cli.py`), so the fast path stays fast as the analytical
+  side grows.
+
+The full-screen check-in and review are driven headlessly through
+Textual's test pilot (`test_tui_*.py`). They check what the screens add
+(navigation, caching, drafts, corrections, copying rather than running)
+and that the numbers they show are the report's own.
 
 The journal directory is a per-test temp dir, set by an autouse fixture. It
 has to be unconditional: any command may append an observation, and a suite

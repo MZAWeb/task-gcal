@@ -4,11 +4,16 @@
 > what exists. Everything in the recommended delivery order (§"Suggested
 > delivery order" 1–4) shipped, plus the Markdown, JSON and HTML renderers.
 >
+> **A TUI has since been built**, against §"Why I would defer a TUI". In
+> use, remembering `--section` names and re-running with `--last N` did
+> prove awkward, and the check-in wanted a way to go back. It went the way
+> this document said it could: `checkin` and `review` open full-screen on a
+> terminal, consume the same `Review` model, `open_episodes` and
+> `reflection_for`, and change nothing about what is measured. The plain
+> output is untouched behind `--plain`, pipes and every document flag.
+>
 > Still deliberately unbuilt, for the reasons argued below:
 >
-> - **A TUI** (§"Why I would defer a TUI"). Terminal reports plus
->   `--section` drill-down have not proved awkward, and the renderer
->   architecture means adding one later wastes none of this work.
 > - **Other scheduling sources** — demands, occurrences, lanes, configured
 >   fitness (§"Suggested delivery order" 5). Waiting on the
 >   scheduler/report boundary having settled in real use.
