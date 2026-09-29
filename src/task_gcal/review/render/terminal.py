@@ -8,13 +8,15 @@ thirteen metrics every time is a dashboard.
 
 from __future__ import annotations
 
+import re
+
 from ..metrics import groups, section_keys
 from ..metrics import trends as trends_metric
 from ..model import Review, Section
 
 # Wide enough for the longest label, so the summaries line up into a column
 # you can read down.
-_LABEL_WIDTH = 15
+_LABEL_WIDTH = 16
 
 
 def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> str:
@@ -79,10 +81,10 @@ def _title(review: Review) -> str:
     every number below it should be read, and a reader who meets it at the
     bottom has already believed the top.
     """
-    if review.observed is None:
+    if review.observed is None or review.observed[0] >= review.observed[1]:
         return review.period.label
     seen, total = review.observed
-    return f"{review.period.label} · {seen} of {total} days seen"
+    return f"{review.period.label} · task-gcal ran on {seen} of {total} days"
 
 
 def _more(shown: tuple[str, ...]) -> list[str]:
@@ -170,7 +172,22 @@ def _fit(text: str, *, indent: str = "", width: int = 78) -> list[str]:
     if len(indent) + len(text.rstrip()) <= width:
         return [indent + text.rstrip()]
     lead = indent + own
+    # A padded `Label  value` row keeps its column: the label goes out as it
+    # was written and the value wraps under itself, not under the label.
+    column = _COLUMN.match(body)
+    if column and len(lead) + len(column.group(1)) <= width // 2:
+        head = lead + column.group(1)
+        return _wrap(
+            column.group(2),
+            indent=head,
+            subsequent=" " * len(head),
+            width=width,
+        )
     return _wrap(body, indent=lead, subsequent=lead + "  ", width=width)
+
+
+# A label (or a list row's count) followed by two or more spaces.
+_COLUMN = re.compile(r"^(\S.*?\s{2,})(\S.*)$")
 
 
 def _wrap(

@@ -174,7 +174,7 @@ def section(review):
 def test_churn_is_unmeasured_without_any_runs(review):
     got = section(review)
     assert got.measured is False
-    assert "no scheduling runs" in got.summary
+    assert "didn't run" in got.summary
 
 
 def test_runs_from_before_the_placement_log_are_unknown_not_calm(review):
@@ -194,7 +194,7 @@ def test_runs_from_before_the_placement_log_are_unknown_not_calm(review):
     got = section(review)
 
     assert got.measured is False
-    assert "no placements" in got.summary
+    assert "not recorded" in got.summary
 
 
 def test_a_quiet_period_says_nothing_moved_rather_than_nothing(review):
@@ -230,7 +230,7 @@ def test_the_causes_are_broken_down(review):
     assert got.data["moves"] == 2
     assert got.data["causes"] == {"estimate changed": 1, "you moved it": 1}
     assert got.data["by_human"] == 1
-    assert "counted once per run" in "\n".join(got.detail)
+    assert "only noticed at the next run" in "\n".join(got.detail)
 
 
 def test_the_most_moved_block_is_named_from_taskwarrior(review):

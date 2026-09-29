@@ -152,28 +152,32 @@ reflect on four days. Either can be named outright (`--month 2026-09`,
 because the default month is already last month.
 
 ```text
-Week 37 · 4 of 7 days seen
+Week 37 · task-gcal ran on 4 of 7 days
 
-Time           42h working, 10h in meetings, 32h left
-Finished       5 tasks (3 by the same point last week), 5h of estimates
-Backlog        18 new, 14 done, 3 dropped — the list is 1 longer
-Blocks         18 blocks came and went. 12 ended with the task done, 6 are
-               still open. 3 tasks finished with no block at all.
-Dates          2 tasks moved a due date, 3 times between them, the longest
-               by 6 days. Of the 5 finished with a date, 4 landed on it.
-Reasons        capacity 4 · avoided 3 · estimate 1 · 2 unclassified
-After hours    1h35 on 2 evenings, 1h30 on 1 weekend day
+Time            42h of working hours, 10h of them in meetings (24%), leaving
+                32h free
+Finished        5 tasks, estimated at 5h in total (3 by this point last week)
+Backlog         18 added, 14 finished, 3 deleted: the open list grew by 1
+Blocks          18 blocks ended: the task was done for 12 and not for 6. 3
+                tasks were finished without a block.
+Dates           2 tasks had a due date pushed back, 3 times in all, the
+                furthest by 6 days. 4 of the 5 tasks finished with a due date
+                made it on time.
+Reasons         busy with other things 4, put it off 3, needed more time 1
+After hours     1h35 over 2 evenings and 1h30 over 1 weekend day
 
 Coverage
-  Anything the journal didn't see is missing, not zero — see the day count
-  beside the title.
-  Measured on calendar primary.
+  On 3 of the 7 days task-gcal didn't run, so block moves on those days
+  are missing from Rescheduling. Everything else is read straight from
+  Taskwarrior and the calendar.
+  Calendar: primary.
 
 Also: task-gcal review --section lead_time · rescheduling · sittings ·
   growth · stuck · trends
 
-Look at: "Prepare PIR" was deferred for the 3rd time — decide whether it is
-real. This is the 2nd week running that I've closed with this.
+Look at: "Prepare PIR" has had its due date pushed back 3 times. Decide
+whether you're really going to do it: book it properly, shrink it, or delete
+it. This is the 2nd week in a row it has been the top item.
 ```
 
 Five rules shape everything in it:
@@ -188,8 +192,8 @@ Five rules shape everything in it:
    hours in meetings is a different thing from an unexplained miss — and
    the sections are only ever placed next to each other, never joined by a
    claim about cause.
-3. **Every number carries its coverage.** `38/50 completed tasks had
-   estimates`, `4 of 7 days seen`, which calendar was measured. A number
+3. **Every number carries its coverage.** `38/50 finished tasks had an
+   estimate`, how many days task-gcal ran, which calendar was read. A number
    without a denominator is a rumour, and missing data never quietly
    becomes zero. "Not measured" is reserved for data that should have been
    there, so it still means something on the week it matters.
@@ -259,12 +263,12 @@ Lists the stuck tasks with the exact commands that would resolve each,
 and **runs none of them**:
 
 ```text
-Stuck (3):
-  #32 Follow up on post-offsite tasks — 5 blocks passed
-      task 32 modify estimate:20        # shrink it to a first step you'd actually start
-      task 32 delete                    # be honest
+Stuck (3), most stuck first:
+  #32 Follow up on post-offsite tasks: 5 blocks passed without it
+      task 32 modify estimate:20        # cut it down to a first step you can start
+      task 32 delete                    # drop it if it isn't happening
 
-Nothing above has been run. Paste the ones you agree with.
+Nothing above has been run. Copy the ones you want.
 ```
 
 In the full-screen review, *Triage* at the foot of the list shows the

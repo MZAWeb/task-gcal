@@ -16,13 +16,14 @@ from collections import Counter
 
 from ...intervals import humanize_minutes
 from ..model import Coverage, Section, Suggestion
+from ..words import plural
 
 KEY = "finished"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "What you finished, and how much time those tasks were expected to "
-    "take. Grouped by project, so you can see where the time went."
+    "Tasks you finished, and how long you had estimated they would take, "
+    "by project."
 )
 
 # How many projects to name before collapsing the rest into "other".
@@ -40,11 +41,11 @@ def _previous(facts) -> tuple[int, str]:
     """
     previous = facts.period.shifted(-1)
     cutoff = previous.end
-    label = f"previous {facts.period.kind}"
+    label = f"the {facts.period.kind} before"
     if facts.period.in_progress:
         elapsed = facts.period.end - facts.period.start
         cutoff = min(previous.start + elapsed, previous.end)
-        label = f"same point last {facts.period.kind}"
+        label = f"this point last {facts.period.kind}"
     count = sum(
         1
         for t in facts.tasks
@@ -64,34 +65,31 @@ def build(facts) -> Section:
 
     # The comparison as the count it was, not as a delta: "+2" is a score,
     # "5 by this point last week" is a fact you can disagree with.
-    summary = f"{len(completed)} task{'' if len(completed) == 1 else 's'}"
-    if previous_count:
-        summary += f" ({previous_count} by the {comparison})"
+    summary = plural(len(completed), "task")
     if planned:
-        summary += f", {humanize_minutes(planned)} of estimates"
+        summary += f", estimated at {humanize_minutes(planned)} in total"
+    if previous_count:
+        summary += f" ({previous_count} by {comparison})"
 
     by_project = Counter(t.project or "(no project)" for t in completed)
     recurring = sum(1 for t in completed if t.is_recurring)
     detail = [
-        f"Completed         {len(completed)} task(s)",
-        f"Planned minutes   {humanize_minutes(planned)} "
-        "(estimates, not time spent)",
-        f"Versus {comparison[:11]:<11} {previous_count} task(s)",
+        f"Finished          {plural(len(completed), 'task')}",
+        f"Estimated time    {humanize_minutes(planned)} (what you expected, "
+        "not time tracked)",
+        f"{comparison.capitalize():<16}  {plural(previous_count, 'task')}",
     ]
     if recurring:
         # A recurring chore ticked off is real work, but a count made mostly
         # of them says something different from one made of new work.
-        detail.append(
-            f"Of those, {recurring} "
-            + ("was a recurring task" if recurring == 1 else "were recurring tasks")
-        )
+        detail.append(f"Recurring         {recurring} of them")
     if by_project:
         detail.append("By project:")
         for name, count in by_project.most_common(_TOP_PROJECTS):
             detail.append(f"  {count:>3}  {name}")
         remaining = len(by_project) - _TOP_PROJECTS
         if remaining > 0:
-            detail.append(f"  ... and {remaining} more project(s)")
+            detail.append(f"  ... and {plural(remaining, 'more project')}")
 
     suggestions: tuple[Suggestion, ...] = ()
     # Only worth saying when there's enough to be worth explaining: below
@@ -99,8 +97,9 @@ def build(facts) -> Section:
     if completed and len(with_estimate) * 2 < len(completed):
         suggestions = (
             Suggestion(
-                f"Only {len(with_estimate)} of {len(completed)} completed "
-                "tasks had an estimate — most of this report can't see them.",
+                f"Only {len(with_estimate)} of {len(completed)} finished tasks "
+                "had an estimate, so the time figures in this review miss "
+                "most of your work. Add an estimate when you create a task.",
                 weight=1.5,
             ),
         )
@@ -112,8 +111,8 @@ def build(facts) -> Section:
         detail=tuple(detail),
         coverage=(
             Coverage(
-                label="completed tasks had estimates",
-                qualifies="Planned minutes",
+                label="finished tasks had an estimate",
+                qualifies="Estimated time",
                 observed=len(with_estimate),
                 total=len(completed),
             ),

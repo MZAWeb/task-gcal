@@ -215,7 +215,7 @@ def test_a_calendar_failure_degrades_rather_than_crashing(runner, monkeypatch):
 
     assert code == 0
     assert capacity["measured"] is False
-    assert any("could not be read" in c for c in payload["caveats"])
+    assert any("couldn't be read" in c for c in payload["caveats"])
 
 
 def test_missing_credentials_degrade_rather_than_aborting(runner, monkeypatch):
@@ -233,7 +233,7 @@ def test_missing_credentials_degrade_rather_than_aborting(runner, monkeypatch):
     payload = json.loads(runner.out)
 
     assert code == 0
-    assert any("could not be read" in c for c in payload["caveats"])
+    assert any("couldn't be read" in c for c in payload["caveats"])
 
 
 def test_a_review_never_opens_a_browser_to_authorize(runner, monkeypatch):
@@ -283,8 +283,8 @@ def test_checkin_does_not_claim_nothing_to_review_without_a_calendar(
 
 def test_an_empty_setup_says_it_has_no_history(runner):
     runner.run()
-    assert "no scheduling runs recorded" in runner.out
-    assert "No task-change history yet" in runner.out
+    assert "didn't run during this week" in runner.out
+    assert "No task history yet" in runner.out
 
 
 def test_journal_records_in_the_period_are_read(runner, isolated_journal):
@@ -303,7 +303,7 @@ def test_journal_records_in_the_period_are_read(runner, isolated_journal):
     # The day count itself now lives beside the title, so the caveat says only
     # what a count can't: what a day nobody observed means.
     assert payload["observed"] == [1, 5]
-    assert any("missing, not zero" in c for c in payload["caveats"])
+    assert any("block moves on those days are missing" in c for c in payload["caveats"])
 
 
 def test_a_settings_change_inside_the_period_is_annotated(
@@ -323,7 +323,7 @@ def test_a_settings_change_inside_the_period_is_annotated(
     runner.run(ReviewRequest(fmt="json"))
     payload = json.loads(runner.out)
 
-    assert any("definitions changed" in c for c in payload["caveats"])
+    assert any("settings changed on" in c for c in payload["caveats"])
 
 
 def test_triage_prints_commands_instead_of_a_report(runner):

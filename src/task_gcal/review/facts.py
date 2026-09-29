@@ -174,20 +174,20 @@ class Facts:
         earliest = self.changes.earliest
         if earliest is None:
             return (
-                "No task-change history yet — it is harvested from "
-                "Taskwarrior on every run, so the next one will start it."
+                "No task history yet. task-gcal reads it from Taskwarrior "
+                "each time it runs, so it starts from the next run."
             )
         if earliest > self.period.start:
             return (
-                "Task-change history starts "
-                f"{earliest.astimezone(self.period.tz):%Y-%m-%d}, after this "
-                f"{self.period.kind} began, so earlier moves are unknown "
-                "rather than absent."
+                "Task history only goes back to "
+                f"{earliest.astimezone(self.period.tz):%a %d %b}, after this "
+                f"{self.period.kind} began, so earlier date changes are "
+                "unknown."
             )
         if self.changes.gaps:
             return (
-                f"{len(self.changes.gaps)} Taskwarrior operation(s) could not "
-                "be read, so a change may be missing."
+                f"{len(self.changes.gaps)} Taskwarrior change(s) couldn't be "
+                "read, so a date change may be missing."
             )
         return None
 

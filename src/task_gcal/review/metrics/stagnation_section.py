@@ -6,17 +6,18 @@ consumes the same entries and turns them into commands.
 
 from __future__ import annotations
 
-from ..model import Coverage, Section, Suggestion
+from ..model import Section, Suggestion
+from ..words import plural
 from ..stagnation import find
 
 KEY = "stuck"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "Names tasks, not numbers: the ones where the evidence above adds up — "
-    "blocks that passed, dates that kept moving, an estimate that doubled. "
-    "The only one here that asks you to do something, and what it asks is to "
-    "decide, not to find more time."
+    "Open tasks with the most signs they aren't happening: due dates pushed "
+    "back again and again, blocks that passed without them, an estimate that "
+    "doubled. Each needs a decision: do it, shrink it, hand it off, or "
+    "delete it."
 )
 
 _TOP = 5
@@ -34,18 +35,11 @@ def build(facts) -> Section:
     recurring = sum(
         1 for t in facts.tasks if t.status == "pending" and t.is_recurring
     )
-    examined = Coverage(
-        label="pending tasks examined (recurring ones excluded)",
-        observed=pending - recurring,
-        total=pending,
-    )
-
     if not entries:
         return Section(
             key=KEY,
             label="Stuck",
-            summary="nothing has accumulated enough evidence against it",
-            coverage=(examined,),
+            summary="no open task looks stuck",
             data={"stagnant": 0, "recurring_excluded": recurring},
         )
 
@@ -53,33 +47,33 @@ def build(facts) -> Section:
     # telling its owner what he "needs" is the one register that's out. The
     # count is context for the closing line, which is where this section
     # actually speaks — see the suggestion below.
-    summary = (
-        f"{len(entries)} of {pending} open tasks are carrying evidence "
-        "against them"
-    )
-    detail = [f"  {entry.summary}" for entry in entries[:_TOP]]
+    summary = f"{len(entries)} of {pending} open tasks look stuck"
+    detail = ["Most stuck first:"]
+    detail.extend(f"  {entry.summary}" for entry in entries[:_TOP])
     if len(entries) > _TOP:
         detail.append(f"  ... and {len(entries) - _TOP} more")
     if recurring:
         detail.append(
-            f"{recurring} recurring task(s) excluded: their dates are "
-            "generated, so staying open is what they're for."
+            f"{plural(recurring, 'recurring task')} left out: staying open "
+            "is normal for them."
         )
-    detail.append("`task-gcal review --triage` prints commands for each.")
+    detail.append(
+        "`task-gcal review --triage` lists commands to resolve each one."
+    )
 
     worst = entries[0]
     others = len(entries) - 1
     also = (
-        f" ({others} other task{'' if others == 1 else 's'} "
-        f"show{'s' if others == 1 else ''} the same pattern — "
-        "`--section stuck` lists them.)"
+        f" {plural(others, 'other task')} "
+        f"{'looks' if others == 1 else 'look'} stuck too; "
+        "`--section stuck` lists them."
         if others
         else ""
     )
     suggestions = (
         Suggestion(
-            f'"{worst.task.description}" — {", ".join(worst.reasons)}. '
-            "Do it, shrink it, hand it off, or kill it." + also,
+            f'"{worst.task.description}": {", ".join(worst.reasons)}. '
+            "Do it, shrink it, hand it off, or delete it." + also,
             # Just under a repeat-offender deadline: the same evidence, but
             # phrased as a list rather than as the one decision to make.
             weight=3.8,
@@ -91,7 +85,6 @@ def build(facts) -> Section:
         label="Stuck",
         summary=summary,
         detail=tuple(detail),
-        coverage=(examined,),
         data={
             "stagnant": len(entries),
             "pending": pending,

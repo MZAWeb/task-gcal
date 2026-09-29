@@ -15,15 +15,16 @@ from ...intervals import (
     merge,
     total_minutes,
 )
-from ..model import Coverage, Section, Suggestion
+from ..model import Section, Suggestion
+from ..words import plural
 
 KEY = "time"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "How much of the period was actually free to plan work into, once "
-    "meetings and non-working hours are taken out. Read every other number "
-    "here against this one."
+    "How much of your working hours was left for planned work once meetings "
+    "are taken out. Read the rest of the review against this: a week that "
+    "was mostly meetings explains a lot."
 )
 
 # Above this share of working time in meetings, the week's throughput needs no
@@ -39,8 +40,8 @@ def build(facts) -> Section:
         return Section(
             key=KEY,
             label="Time",
-            summary=f"{humanize_minutes(available)} of working hours — "
-                    "couldn't read the calendar, so meetings are unknown",
+            summary=f"{humanize_minutes(available)} of working hours; the "
+                    "calendar couldn't be read, so meetings are unknown",
             measured=False,
             data={"available_minutes": available},
         )
@@ -64,36 +65,40 @@ def build(facts) -> Section:
     # A sentence, not three numbers separated by middots. The subtraction is
     # the finding — "two thirds of the week was already gone" is what a person
     # takes from this line — and three co-equal numbers hide it.
+    share = meeting_minutes / available if available else 0.0
     summary = (
-        f"{humanize_minutes(available)} working, "
-        f"{humanize_minutes(meeting_minutes)} in meetings, "
-        f"{humanize_minutes(schedulable)} left"
+        f"{humanize_minutes(available)} of working hours, "
+        f"{humanize_minutes(meeting_minutes)} of them in meetings "
+        f"({share:.0%}), leaving {humanize_minutes(schedulable)} free"
     )
 
-    share = meeting_minutes / available if available else 0.0
+    outside = planned_minutes - planned_in_hours
     detail = [
-        f"Working hours     {humanize_minutes(available)} "
-        f"across {len(windows)} working day(s)",
-        f"Meetings          {humanize_minutes(meeting_minutes)} "
-        f"({share:.0%} of working hours)",
-        f"Left to schedule  {humanize_minutes(schedulable)}",
+        f"Working hours     {humanize_minutes(available)} over "
+        f"{plural(len(windows), 'day')}",
+        f"Meetings          {humanize_minutes(meeting_minutes)}, "
+        f"{share:.0%} of working hours",
+        f"Free for work     {humanize_minutes(schedulable)}",
         # Compared with the in-hours part only: `schedulable` is
         # working-hours time, and an evening block was never competing for
         # it. The two together would print over 100% for someone who used a
         # `work_end_hour` override without over-filling their working day.
-        f"Blocks planned    {humanize_minutes(planned_minutes)}"
+        f"Blocks booked     {humanize_minutes(planned_in_hours)}"
         + (
-            f" ({planned_in_hours / schedulable:.0%} of what was left, "
-            f"{humanize_minutes(planned_minutes - planned_in_hours)} outside "
-            "hours)"
+            f", {planned_in_hours / schedulable:.0%} of the free time"
             if schedulable
             else ""
         ),
     ]
+    if outside:
+        detail.append(
+            f"  after hours     {humanize_minutes(outside)} more, outside "
+            "working hours"
+        )
     if facts.period.in_progress:
         detail.append(
-            "The period is still running, so hours that haven't happened "
-            "yet are not counted."
+            f"This {facts.period.kind} isn't over, so only hours up to now "
+            "are counted."
         )
 
     # Both can be true at once, and both are proposed when they are: the
@@ -103,8 +108,9 @@ def build(facts) -> Section:
     if share >= _MEETING_HEAVY:
         suggestions.append(
             Suggestion(
-                f"{share:.0%} of your working hours were meetings — plan "
-                f"less next {facts.period.kind}, not more.",
+                f"{share:.0%} of your working hours went to meetings. Book "
+                f"less work next {facts.period.kind}, not more, or clear "
+                "some meetings.",
                 weight=2.0,
             )
         )
@@ -114,8 +120,9 @@ def build(facts) -> Section:
     if schedulable and planned_in_hours > schedulable:
         suggestions.append(
             Suggestion(
-                f"You planned {humanize_minutes(planned_in_hours)} into "
-                f"{humanize_minutes(schedulable)} of free working time.",
+                f"You booked {humanize_minutes(planned_in_hours)} of work "
+                f"into {humanize_minutes(schedulable)} of free time. Something "
+                "was always going to slip; book less.",
                 weight=2.5,
             )
         )
@@ -125,13 +132,6 @@ def build(facts) -> Section:
         label="Time",
         summary=summary,
         detail=tuple(detail),
-        coverage=(
-            Coverage(
-                label="days of the period observed",
-                observed=len(facts.observed_days()),
-                total=len(facts.period.days()),
-            ),
-        ),
         data={
             "available_minutes": available,
             "meeting_minutes": meeting_minutes,

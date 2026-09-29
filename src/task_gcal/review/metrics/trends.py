@@ -22,21 +22,25 @@ from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Optional
 
-from ...intervals import humanize_minutes
 from ..model import Coverage, Section
+from ..words import plural
 from ..periods import KIND_MONTH, week_of
 
 KEY = "trends"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "A few of the same numbers over the last twelve weeks, so you can see "
-    "which way things are going rather than only where they are today."
+    "Three numbers week by week over the last twelve weeks: tasks finished, "
+    "how often a block ended with its task done, and how many due dates were "
+    "pushed back. For seeing which way things are heading."
 )
 
 # Twelve weeks: long enough for a seasonal shape to show, short enough that
 # the definition is likely to have held for most of it.
 WEEKS = 12
+
+# Fewer comparable weeks than this is too few to call a direction.
+_ENOUGH_WEEKS = 3
 
 # The eight block heights, low to high. A sparkline is the whole point of
 # putting a trend on one line.
@@ -97,9 +101,9 @@ def series_for_display(section_data: dict) -> list[tuple[str, list, str]]:
     if len(weeks) < 2:
         return []
     return [
-        ("Completed", [float(w["completed"]) for w in weeks], ""),
+        ("Tasks finished", [float(w["completed"]) for w in weeks], ""),
         (
-            "Blocks ending with it done",
+            "Blocks with task done",
             [
                 round(w["blocks_honored"] / w["blocks_ended"] * 100)
                 if w["blocks_ended"]
@@ -108,7 +112,7 @@ def series_for_display(section_data: dict) -> list[tuple[str, list, str]]:
             ],
             "%",
         ),
-        ("Observed deadline pushes", [float(w["observed_pushes"]) for w in weeks], ""),
+        ("Due dates pushed back", [float(w["observed_pushes"]) for w in weeks], ""),
     ]
 
 
@@ -142,7 +146,7 @@ def build(facts) -> Section:
         return Section(
             key=KEY,
             label="Trend",
-            summary="not enough history to compare periods",
+            summary="not enough history yet",
             measured=False,
             data={},
         )
@@ -165,31 +169,32 @@ def build(facts) -> Section:
     # its own medium — block characters in a terminal, SVG in HTML — which is
     # a presentation choice rather than something to bake into the model.
     summary = (
-        f"{len(points)}w · done {_endpoints(completed)} · "
-        f"median {median_completed:g}"
+        f"a typical week finished {median_completed:g} tasks, the latest "
+        f"{completed[-1]:g}"
     )
     if comparable_from:
-        summary += " · definition changed mid-trend"
+        summary += " (settings changed partway)"
+    if len(comparable) < _ENOUGH_WEEKS:
+        # One or two weeks since a settings change is a data point, not a
+        # direction, and a "typical week" of one is just that week.
+        summary = (
+            f"too soon to tell: only {plural(len(comparable), 'week')} since "
+            "your settings changed"
+        )
 
     # The per-series lines are composed by the renderer from `data`, since
     # each medium draws the series differently. What's left here is what
     # reads the same everywhere.
     detail = [
-        f"Median completed  {median_completed:g} over "
-        f"{len(comparable)} comparable week(s)",
-        "Oldest week first. Trends use only weeks measured the same way.",
+        f"Typical week      {median_completed:g} tasks finished (median of "
+        f"{plural(len(comparable), 'week')})",
+        "Oldest week on the left.",
     ]
     if comparable_from:
         detail.append(
-            f"Settings or definitions changed, so only {comparable_from} "
-            "onward is comparable; earlier weeks are shown but excluded from "
-            "the median."
+            f"Your settings changed in {comparable_from}, so the typical week "
+            "only counts weeks from then on."
         )
-    planned = [p.planned_minutes for p in points]
-    detail.append(
-        f"Planned minutes   latest {humanize_minutes(planned[-1])}, "
-        f"earliest {humanize_minutes(planned[0])}"
-    )
 
     return Section(
         key=KEY,
@@ -198,7 +203,7 @@ def build(facts) -> Section:
         detail=tuple(detail),
         coverage=(
             Coverage(
-                label="weeks comparable with the current definition",
+                label="weeks measured with today's settings",
                 observed=len(comparable),
                 total=len(points),
             ),
@@ -337,14 +342,6 @@ def _median(values: list[int]) -> float:
     if len(ordered) % 2:
         return float(ordered[middle])
     return (ordered[middle - 1] + ordered[middle]) / 2
-
-
-def _endpoints(values: list[Optional[float]], *, suffix: str = "") -> str:
-    """`first → last`, skipping gaps, for the numbers behind the sparkline."""
-    present = [v for v in values if v is not None]
-    if not present:
-        return "no data"
-    return f"{present[0]:g}{suffix} → {present[-1]:g}{suffix}"
 
 
 def wanted_for(kind: str) -> bool:

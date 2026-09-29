@@ -19,16 +19,34 @@ from __future__ import annotations
 from collections import Counter
 
 from ..model import Coverage, Section, Suggestion
+from ..words import plural, times
 from ..placements import BY_HUMAN, build_blocks
 
 KEY = "rescheduling"
 
+
+def cause_words(cause: str) -> str:
+    """A recorded move reason, in plain words."""
+    return _CAUSES.get(cause, cause)
+
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "Counts moves, before the block ever arrives: how much the calendar got "
-    "reshuffled, and whether it was the scheduler or you doing the moving. A "
-    "week can be calm here and still go badly, or churn and go fine."
+    "How often blocks were moved before their time came, and why: a meeting "
+    "landed on one, task-gcal found a better slot, or you moved it yourself. "
+    "Moves are only seen on days task-gcal runs."
 )
+
+# The recorded reasons, in the words you'd use. Anything not listed is shown
+# as recorded, so a new reason is never hidden.
+_CAUSES = {
+    "overlaps a calendar event": "a meeting landed on it",
+    "replanned": "task-gcal found a better slot",
+    "you moved it": "you moved it",
+    "outside working hours": "it fell outside working hours",
+    "estimate changed": "its estimate changed",
+    "ends after its due date": "its due date moved earlier",
+    "starts before its scheduled/wait date": "its start date moved later",
+}
 
 # How many times one block has to move before it's worth naming.
 _RESTLESS = 3
@@ -43,12 +61,12 @@ def build(facts) -> Section:
         return Section(
             key=KEY,
             label="Rescheduling",
-            summary="no scheduling runs recorded for this period",
+            summary=f"task-gcal didn't run this {facts.period.kind}",
             measured=False,
             detail=(
-                "Blocks only move during a run, so a period with no runs has "
-                "nothing to say about churn — which is not the same as a calm "
-                "one.",
+                "Blocks are only moved, and moves only seen, when task-gcal "
+                "runs, so nothing is known about this "
+                f"{facts.period.kind}. That's not the same as nothing moving.",
             ),
             data={"moves": 0},
         )
@@ -61,12 +79,12 @@ def build(facts) -> Section:
         return Section(
             key=KEY,
             label="Rescheduling",
-            summary="the runs in this period recorded no placements",
+            summary="not recorded yet for this period",
             measured=False,
             detail=(
-                "These records were written before the journal logged where "
-                "each block was, so how often blocks moved is unknown for this "
-                "period rather than zero. Runs from now on record it.",
+                "These runs happened before task-gcal started recording where "
+                "each block was, so how often blocks moved is unknown here. "
+                "Runs from now on record it.",
             ),
             data={"moves": 0},
         )
@@ -84,26 +102,26 @@ def build(facts) -> Section:
     causes = Counter(m.cause for m in moves)
 
     if not moves:
-        summary = f"nothing moved · {len(live)} block(s)"
+        summary = f"nothing moved ({plural(len(live), 'block')} booked)"
     else:
         summary = (
-            f"{len(moves)} move(s) across {len(moved_blocks)} of "
-            f"{len(live)} block(s)"
+            f"{len(moved_blocks)} of {plural(len(live), 'block')} moved, "
+            f"{plural(len(moves), 'move')} in all"
         )
 
     detail = [
-        f"Blocks in the period   {len(live)}",
-        f"Blocks that moved      {len(moved_blocks)}",
-        f"Moves                  {len(moves)}",
+        f"Blocks            {len(live)}",
+        f"Blocks moved      {len(moved_blocks)}",
+        f"Moves             {len(moves)}",
     ]
     if causes:
-        detail.append("Why:")
+        detail.append("Why they moved:")
         for cause, count in causes.most_common():
-            detail.append(f"  {count:>3}  {cause}")
+            detail.append(f"  {count:>3}  {cause_words(cause)}")
     if by_human:
         detail.append(
-            f"Your own moves         {len(by_human)} — counted once per run, "
-            "so this is a floor"
+            f"Moved by you      at least {len(by_human)}; a move you make is "
+            "only noticed at the next run"
         )
 
     detail.extend(_restless(blocks, window, facts))
@@ -115,7 +133,7 @@ def build(facts) -> Section:
         detail=tuple(detail),
         coverage=(
             Coverage(
-                label="days in the period a run observed",
+                label="days task-gcal ran, so moves on the others are missed",
                 observed=len(facts.observed_days()),
                 total=len(facts.period.days()),
             ),
@@ -150,7 +168,7 @@ def _restless(blocks, window, facts) -> list[str]:
     counted = [(b, n) for b, n in counted if n > 1]
     if not counted:
         return []
-    out = ["Most-moved blocks:"]
+    out = ["Moved most:"]
     for block, count in counted[:_TOP_BLOCKS]:
         mine = sum(1 for m in block.moves_in(window) if m.by == BY_HUMAN)
         share = f" ({mine} by you)" if mine else ""
@@ -176,10 +194,9 @@ def _suggest(blocks, window, facts) -> tuple[Suggestion, ...]:
         return ()
     return (
         Suggestion(
-            f'"{facts.label_for(worst.task_uuid)}" has been moved '
-            f"{worst_count} times this {facts.period.kind} — it isn't "
-            "scheduled, it's being carried. Give it a slot you'll defend or "
-            "take it out of the plan.",
+            f'"{facts.label_for(worst.task_uuid)}" was moved '
+            f"{times(worst_count)} this {facts.period.kind}. Book it at a "
+            "time you'll protect, or take it off the plan.",
             weight=3.6,
         ),
     )

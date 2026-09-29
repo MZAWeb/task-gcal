@@ -391,7 +391,7 @@ def test_an_optional_section_is_not_treated_as_a_failed_measurement(populated):
     # A check-in feature nobody turned on is a gap in the setup, not a gap in
     # the record. Spending "not measured" on it wears the phrase out.
     out = populated.render("html", sections=("reasons",))
-    assert "only fills in when you use it" in out
+    assert "Empty until you use it" in out
     assert "inputs weren't there" not in out
 
 
@@ -757,7 +757,7 @@ def test_the_detail_is_typeset_as_rows_rather_than_printed_as_bullets(populated)
     # those strings into HTML throws away the structure the padding *is*.
     out = populated.render("html", sections=("time",))
     assert "<dt>Working hours</dt>" in out
-    assert re.search(r"<dt>Working hours</dt><dd>\d+h[\d]* across", out)
+    assert re.search(r"<dt>Working hours</dt><dd>\d+h[\d]* over", out)
     # And not as the bullet list of pre-padded strings this used to be.
     assert "<li>Working hours" not in out
 
@@ -767,14 +767,14 @@ def test_a_line_the_metric_did_not_pad_is_still_a_row(populated):
     # grey sentence — which reads as two different kinds of thing.
     populated.blocks(a_block("a", at(0, 9), 60), a_block("b", at(1, 9), 90))
     out = populated.render("html", sections=("blocks",))
-    assert "<dt>Passed still open</dt>" in out
+    assert "<dt>Task not done</dt>" in out
 
 
 def test_prose_that_happens_to_contain_a_number_stays_prose(populated):
     # A sentence that happens to contain a number is not a measurement, and
     # tearing it into a label and a value would state it as one.
     out = populated.render("html", sections=("time",))
-    sentence = "The period is still running"
+    sentence = "This week isn&#x27;t over"
     assert f'<p class="note">{sentence}' in out
     assert f"<dt>{sentence}" not in out
 
@@ -825,6 +825,10 @@ def strip_tags(html: str) -> str:
 
 
 def test_a_detail_list_becomes_a_table_rather_than_a_paragraph(populated):
+    populated.tasks(
+        a_task(uuid="a", status="completed", end=at(0, 9, 30), due=at(1, 17)),
+        a_task(uuid="b", status="completed", end=at(1, 16)),
+    )
     out = populated.render("html", sections=("dates",), detailed=True)
     assert "<table" in out or "no deadline history" in out
 
@@ -877,6 +881,10 @@ def test_a_wide_table_scrolls_itself_rather_than_the_page(populated):
         a_task(uuid="e", description="x" * 90, due=at(4, 9)),
     )
     populated.changes(due_moved("e", at(0, 12), at(0, 9), at(4, 9)))
+    populated.tasks(
+        a_task(uuid="a", status="completed", end=at(0, 9, 30), due=at(1, 17)),
+        a_task(uuid="b", status="completed", end=at(1, 16)),
+    )
     out = populated.render("html", sections=("dates",), detailed=True)
     assert out.count('<table class="values"') == out.count('<div class="scroll">')
     assert '<div class="scroll"><table class="values"' in out
@@ -986,8 +994,8 @@ def test_the_header_shows_which_days_were_observed_not_only_how_many(populated):
     cells = strip.count('class="day"') + strip.count('class="day seen"')
     assert cells == 5  # one cell per day of the period
     assert strip.count('class="day seen"') == 2
-    assert 'title="Monday 7 Sep: a run observed this day"' in strip
-    assert 'title="Tuesday 8 Sep: not observed"' in strip
+    assert 'title="Monday 7 Sep: task-gcal ran"' in strip
+    assert 'title="Tuesday 8 Sep: task-gcal didn&#x27;t run"' in strip
 
 
 def test_the_observed_days_are_named_in_words_not_only_drawn(populated):
@@ -1005,7 +1013,7 @@ def test_a_fully_observed_period_does_not_list_its_days(populated):
     # Naming all five days of a week nothing was missing from says nothing.
     populated.records(*[a_journal_run(at(day, 12)) for day in range(5)])
     out = populated.render("html")
-    assert "Built on all <b>5</b> days" in out
+    assert "task-gcal ran on all <b>5</b> days" in out
     assert "The other days are not in the record" not in out
 
 
@@ -1046,6 +1054,10 @@ def test_the_ledger_names_the_window_its_counts_cover(populated):
         a_task(uuid="a", status="completed", end=at(1, 10), due=at(0, 9)),
     )
     populated.changes(due_moved("a", at(0, 12), at(0, 9), at(1, 9)))
+    populated.tasks(
+        a_task(uuid="a", status="completed", end=at(0, 9, 30), due=at(1, 17)),
+        a_task(uuid="b", status="completed", end=at(1, 16)),
+    )
     out = populated.render("html", sections=("dates",), detailed=True)
     if "Every date that moved" in out:
         assert "Moves, all time" in out
@@ -1088,8 +1100,8 @@ def test_the_repetition_clause_is_set_apart_from_the_finding(populated):
 
     finding = re.search(r"<p>(.*?)</p>", decision).group(1)
     again = re.search(r'<p class="again">(.*?)</p>', decision).group(1)
-    assert "week running" not in finding
-    assert "week running" in again
+    assert "week in a row" not in finding
+    assert "week in a row" in again
 
 
 def test_a_denominator_that_belongs_to_one_figure_sits_beside_it(populated):
@@ -1104,18 +1116,22 @@ def test_a_denominator_that_belongs_to_one_figure_sits_beside_it(populated):
         out,
     )
     assert row, out[out.index("Average per task") - 200 :][:400]
-    assert "observed block" in row.group(2)
+    assert "had a block" in row.group(2)
     # And it isn't also printed in the footnote underneath.
     footnote = re.search(r'<p class="coverage">(.*?)</p>', out)
     assert footnote is None or "observed block" not in footnote.group(1)
 
 
 def test_a_denominator_for_the_whole_section_stays_in_the_footnote(populated):
-    # "days of the period observed" qualifies every number in Time, not one of
-    # them, and belongs where it is.
-    out = populated.render("html", sections=("time",), detailed=True)
+    # "finished tasks had a due date" qualifies every number in Dates, not
+    # one of them, and belongs where it is.
+    populated.tasks(
+        a_task(uuid="a", status="completed", end=at(0, 9, 30), due=at(1, 17)),
+        a_task(uuid="b", status="completed", end=at(1, 16)),
+    )
+    out = populated.render("html", sections=("dates",), detailed=True)
     footnote = re.search(r'<p class="coverage">(.*?)</p>', out).group(1)
-    assert "days of the period observed" in footnote
+    assert "finished tasks had a due date" in footnote
 
 
 def test_a_denominator_naming_a_row_that_is_not_there_falls_back(populated):
@@ -1135,4 +1151,4 @@ def test_a_denominator_naming_a_row_that_is_not_there_falls_back(populated):
     assert 'class="qual"' not in out
     footnote = re.search(r'<p class="coverage">(.*?)</p>', out)
     assert footnote is not None, "an unattachable denominator must still print"
-    assert "observed block" in footnote.group(1)
+    assert "had a block" in footnote.group(1)

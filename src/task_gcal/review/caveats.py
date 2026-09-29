@@ -27,9 +27,12 @@ def build(facts) -> tuple[str, ...]:
     # With no records at all, the "seed some history" note below says
     # everything this one would, and more usefully.
     if records and len(observed) < len(days):
+        missed = len(days) - len(observed)
         out.append(
-            "Anything the journal didn't see is missing, not zero — "
-            "see the day count beside the title."
+            f"On {missed} of the {len(days)} days task-gcal didn't run, so "
+            "block moves on those days are missing from Rescheduling. "
+            "Everything else is read straight from Taskwarrior and the "
+            "calendar."
         )
 
     note = facts.change_coverage_note()
@@ -40,35 +43,34 @@ def build(facts) -> tuple[str, ...]:
     if boundaries:
         when = boundaries[0].astimezone(period.tz).strftime("%a %d %b")
         out.append(
-            f"Settings or metric definitions changed during this period "
-            f"(first on {when}), so the two halves are not strictly "
-            "comparable."
+            f"Your task-gcal settings changed on {when}, so numbers from "
+            "before and after that day don't compare exactly."
         )
 
     if not facts.calendar_ok:
         out.append(
-            "The calendar could not be read, so capacity, meeting load and "
-            "follow-through are unmeasured."
+            "The calendar couldn't be read, so meetings, blocks and "
+            "after-hours work aren't measured."
         )
     else:
-        out.append(f"Measured on calendar {facts.settings.calendar_id}.")
+        out.append(f"Calendar: {facts.settings.calendar_id}.")
 
     if facts.journal.unreadable_lines:
         out.append(
-            f"{facts.journal.unreadable_lines} journal line(s) were "
-            "unreadable and skipped."
+            f"{facts.journal.unreadable_lines} line(s) of task-gcal's run "
+            "log couldn't be read and were skipped."
         )
 
     if period.in_progress:
         out.append(
-            f"This {period.kind} is still in progress; hours that haven't "
-            "happened yet are excluded."
+            f"This {period.kind} isn't over yet; only time up to now is "
+            "counted."
         )
 
     if not records:
         out.append(
-            "This period has no scheduling runs recorded, so nothing is "
-            "known about how blocks moved during it."
+            f"task-gcal didn't run during this {period.kind}, so there's no "
+            "record of blocks moving."
         )
 
     return tuple(out)

@@ -180,8 +180,8 @@ class Review:
             return ""
         running = best.already_true_for + 1
         return (
-            f"This is the {_ordinal(running)} {self.period.kind} running "
-            "that I've closed with this."
+            f"This is the {_ordinal(running)} {self.period.kind} in a row "
+            "it has been the top item."
         )
 
     @property

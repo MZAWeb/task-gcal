@@ -202,7 +202,7 @@ def test_a_settings_change_marks_the_earlier_weeks_incomparable(
     # with anything — but the change five weeks ago still interrupts the run,
     # and the trend can only claim the tail after it.
     assert result.data["comparable_from"] == "Week 34"
-    assert "definition changed mid-trend" in result.summary
+    assert "settings changed partway" in result.summary
     (coverage,) = result.coverage
     assert coverage.observed < coverage.total
 

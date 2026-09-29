@@ -631,8 +631,8 @@ _DATA_DRIVEN = {stuck_metric.KEY}
 # heading loses the de-duplication rather than the content.
 _CHARTED_GROUPS = {
     throughput_metric.KEY: ("by project",),
-    attempts_metric.KEY: ("distribution",),
-    churn_metric.KEY: ("why",),
+    attempts_metric.KEY: ("blocks per task",),
+    churn_metric.KEY: ("why they moved",),
 }
 
 _PLURAL = re.compile(
@@ -735,9 +735,9 @@ def _header(review: Review) -> str:
         seen, total = review.observed
         out.append(_observed_mark(review, seen, total))
         if seen >= total:
-            out.append(f"<span>Built on all <b>{total}</b> days of the period</span>")
+            out.append(f"<span>task-gcal ran on all <b>{total}</b> days</span>")
         else:
-            out.append(f"<span>Built on <b>{seen} of {total} days</b> observed</span>")
+            out.append(f"<span>task-gcal ran on <b>{seen} of {total} days</b></span>")
     if period.in_progress:
         out.append("<span>Still in progress</span>")
     out.append(f'<span>Generated {escape(_stamp(stamp))}</span>')
@@ -766,8 +766,8 @@ def _observed_mark(review: Review, seen: int, total: int) -> str:
         # observed draws an empty track: a sliver of ink for nothing is a lie.
         share = 0 if not (total and seen) else max(4, round(100 * seen / total))
         return (
-            f'<span class="meter" role="img" aria-label="{seen} of {total} '
-            f'days observed"><span style="width:{share}%"></span></span>'
+            f'<span class="meter" role="img" aria-label="task-gcal ran on '
+            f'{seen} of {total} days"><span style="width:{share}%"></span></span>'
         )
 
     observed = set(review.observed_days)
@@ -780,7 +780,7 @@ def _observed_mark(review: Review, seen: int, total: int) -> str:
         klass = "day seen" if was_seen else "day"
         title = (
             f"{day.strftime('%A')} {day.day} {day.strftime('%b')}: "
-            + ("a run observed this day" if was_seen else "not observed")
+            + ("task-gcal ran" if was_seen else "task-gcal didn't run")
         )
         cells.append(
             f'<span class="{klass}" title="{escape(title)}">'
@@ -793,8 +793,8 @@ def _observed_mark(review: Review, seen: int, total: int) -> str:
             + "</span>"
         )
     return (
-        f'<span class="days" role="img" aria-label="{seen} of {total} days '
-        f'observed">{"".join(cells)}</span>'
+        f'<span class="days" role="img" aria-label="task-gcal ran on {seen} '
+        f'of {total} days">{"".join(cells)}</span>'
     )
 
 
@@ -970,12 +970,11 @@ def _why_blank(section: Section, *, has_basis: bool) -> str:
     """
     if section.optional:
         return (
-            "Nothing to read here, which is not the same as zero — this one "
-            "only fills in when you use it."
+            "Empty until you use it."
         )
     unknown = (
-        "Not measured this period: the inputs weren't there. That means "
-        "<b>unknown</b>, not zero"
+        "Not measured: the data wasn't there, so this is <b>unknown</b>, "
+        "not zero"
     )
     if not has_basis:
         return unknown + "."
@@ -1305,21 +1304,21 @@ def _capacity_chart(data) -> str:
     return stacked_bar(
         [
             Slice("Meetings", meetings, "--series-2", humanize_minutes(meetings)),
-            Slice("Blocks you planned", planned, "--series-1", humanize_minutes(planned)),
+            Slice("Blocks booked", planned, "--series-1", humanize_minutes(planned)),
             Slice(
-                "Left unclaimed",
+                "Still free",
                 data.get("free_minutes", 0) or 0,
                 "--track",
                 humanize_minutes(data.get("free_minutes", 0) or 0),
             ),
         ],
         title=(
-            "Your working hours, all "
-            f"{humanize_minutes(data.get('available_minutes', 0) or 0)} of them"
+            "Your working hours: "
+            f"{humanize_minutes(data.get('available_minutes', 0) or 0)}"
         ),
         note=(
-            f"{humanize_minutes(outside)} of planned work sat outside working "
-            "hours and is counted under After hours, not here."
+            f"Another {humanize_minutes(outside)} was booked outside working "
+            "hours; see After hours."
             if outside > 0
             else ""
         ),
@@ -1342,8 +1341,8 @@ def _blocks_chart(data) -> str:
         return ""
     return columns(
         [(hour_label(hour), count, str(count)) for hour, count in hours],
-        title="Blocks that passed with the task still open, by hour of day",
-        note="Hour the block started. A run of them at one hour is about the hour.",
+        title="Blocks that ended with the task not done, by start time",
+        note="A tall bar at one hour means that hour isn't working for this.",
     )
 
 
@@ -1354,15 +1353,15 @@ def _sittings_chart(data) -> str:
     ordered = sorted(distribution.items(), key=lambda pair: int(pair[0]))
     return columns(
         [(str(sittings), int(count), str(count)) for sittings, count in ordered],
-        title="Finished tasks, by how many sittings they took",
-        note="Sittings per task along the bottom, tasks up the side.",
+        title="Finished tasks, by how many blocks they took",
+        note="Blocks per task along the bottom, number of tasks up the side.",
     )
 
 
 def _rescheduling_chart(data) -> str:
     return bar_rows(
         [
-            (str(cause), int(count), str(count))
+            (churn_metric.cause_words(str(cause)), int(count), str(count))
             for cause, count in (data.get("causes") or {}).items()
         ],
         title="Why blocks moved",
@@ -1376,13 +1375,13 @@ def _dates_chart(data) -> str:
         return ""
     return stacked_bar(
         [
-            Slice("Made after the old date had passed", reactive, "--series-2", str(reactive)),
-            Slice("Made before it", proactive, "--series-1", str(proactive)),
+            Slice("After the date had passed", reactive, "--series-2", str(reactive)),
+            Slice("Before the date came", proactive, "--series-1", str(proactive)),
         ],
-        title=f"When the {reactive + proactive} date changes were made",
+        title=f"When the {reactive + proactive} due-date moves happened",
         note=(
-            "A date moved before it arrives renegotiates a commitment; moved "
-            "after, it reports a miss. Neither is automatically the wrong move."
+            "Moving a date in advance is replanning; moving it after it has "
+            "passed means it was missed. Neither is wrong on its own."
         ),
     )
 
@@ -1391,8 +1390,8 @@ def _growth_chart(data) -> str:
     return bar_rows(
         [
             ("Estimate raised", data.get("estimates_up", 0) or 0, str(data.get("estimates_up", 0))),
-            ("Retitled", data.get("retitled", 0) or 0, str(data.get("retitled", 0))),
-            ("Start pushed out", data.get("deferred", 0) or 0, str(data.get("deferred", 0))),
+            ("Renamed", data.get("retitled", 0) or 0, str(data.get("retitled", 0))),
+            ("Postponed", data.get("deferred", 0) or 0, str(data.get("deferred", 0))),
         ],
         title="How tasks grew",
     )
@@ -1479,7 +1478,9 @@ def _observed_in_words(review: Review) -> str:
         listed = names[0]
     else:
         listed = ", ".join(names[:-1]) + f" and {names[-1]}"
-    return escape(f"A run observed {listed}. The other days are not in the record.")
+    return escape(
+        f"task-gcal ran on {listed}, so block moves on other days weren't seen."
+    )
 
 
 def _appendix(sections: tuple[Section, ...]) -> str:
@@ -1588,11 +1589,10 @@ def _footer() -> str:
     """
     return (
         "<footer>"
-        "<p>Nothing here is a score. There is no target, no streak and no "
-        "grade — every line is a description of what happened, and the only "
-        "thing the report asks for is one decision.</p>"
-        "<p>Where a section says something isn't measured, it means unknown. "
-        "It never means zero.</p>"
+        "<p>Nothing here is a score: it describes what happened, and the only "
+        "thing it asks of you is one decision.</p>"
+        "<p>Where a section says it isn't measured, the data wasn't there. "
+        "That means unknown; it never means zero.</p>"
         "</footer>"
     )
 

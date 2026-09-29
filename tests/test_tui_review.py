@@ -215,7 +215,7 @@ def test_an_empty_triage_says_so(pages):
         seen["intro"] = text_of(screen.query_one("#triage-intro"))
 
     seen = drive(ReviewApp(pages, focus="triage"), inspect=inspect)
-    assert "Nothing is stagnant" in seen["intro"]
+    assert "Nothing looks stuck" in seen["intro"]
 
 
 # ---------------------------------------------------------------------------

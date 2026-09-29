@@ -20,13 +20,15 @@ from __future__ import annotations
 from collections import Counter
 
 from ..model import Coverage, Section, Suggestion
+from ..words import plural
 
 KEY = "blocks"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "Counts blocks of time that have already passed: when one came and went, "
-    "was the task actually done by the end of it?"
+    "The blocks booked for your tasks that have already passed, and whether "
+    "each task was finished by the time its block ended. Tasks finished "
+    "without any block show how much work happens outside the plan."
 )
 
 # Below this rate the week is worth a closing note. Not a grade: a low rate
@@ -70,8 +72,12 @@ def build(facts) -> Section:
             key=KEY,
             label="Blocks",
             summary=(
-                "no blocks ended in this period"
-                + (f" · {len(off_plan)} completed off-plan" if off_plan else "")
+                f"no blocks ended this {facts.period.kind}"
+                + (
+                    f"; {plural(len(off_plan), 'task')} finished without one"
+                    if off_plan
+                    else ""
+                )
             ),
             measured=False,
             data={"blocks": 0, "off_plan": len(off_plan)},
@@ -82,15 +88,20 @@ def build(facts) -> Section:
     # moralising rather than the number. Saying what happened to the others
     # removes the need for a rate as well: "15 still open" and "(12%)" carry
     # the same information, and only one of them reads as a grade.
-    summary = (
-        f"{len(ended)} block{'' if len(ended) == 1 else 's'} came and went. "
-        f"{len(honored)} ended with the task done"
-    )
-    summary += f", {len(passed_open)} are still open." if passed_open else "."
+    if not honored:
+        summary = f"{plural(len(ended), 'block')} ended, none with the task done."
+    elif not passed_open:
+        summary = f"{plural(len(ended), 'block')} ended, all with the task done."
+    else:
+        summary = (
+            f"{plural(len(ended), 'block')} ended: the task was done for "
+            f"{len(honored)} and not for {len(passed_open)}."
+        )
     if off_plan:
         summary += (
-            f" {len(off_plan)} task{'' if len(off_plan) == 1 else 's'} "
-            "finished with no block at all."
+            f" {plural(len(off_plan), 'task')} "
+            f"{'was' if len(off_plan) == 1 else 'were'} finished without a "
+            "block."
         )
 
     worst_hour = Counter(
@@ -98,15 +109,17 @@ def build(facts) -> Section:
     )
     detail = [
         f"Blocks ended      {len(ended)}",
-        f"Task done by then {len(honored)} ({rate:.0%})",
-        f"Passed still open {len(passed_open)}",
-        f"Completed off-plan {len(off_plan)} (never had a block at all)",
+        f"Task done         {len(honored)} ({rate:.0%})",
+        f"Task not done     {len(passed_open)}",
+        f"Done without one  {plural(len(off_plan), 'task')} finished with no "
+        "block booked",
     ]
-    if worst_hour:
+    # One block at an hour is a Tuesday, not a pattern.
+    if worst_hour and worst_hour.most_common(1)[0][1] >= 2:
         hour, count = worst_hour.most_common(1)[0]
         detail.append(
-            f"Most common hour  {hour:02d}:00 — {count} block(s) passed "
-            "with the task still open"
+            f"Worst start time  {hour:02d}:00, where {count} blocks ended "
+            "with the task not done"
         )
 
     suggestions: tuple[Suggestion, ...] = ()
@@ -115,16 +128,18 @@ def build(facts) -> Section:
             hour = worst_hour.most_common(1)[0][0]
             suggestions = (
                 Suggestion(
-                    f"Blocks at {hour:02d}:00 kept passing with the task "
-                    "still open — stop scheduling work there.",
+                    f"Blocks starting at {hour:02d}:00 keep ending with the "
+                    "task not done. That hour isn't working for focused "
+                    "work; keep it for something else.",
                     weight=3.0,
                 ),
             )
         else:
             suggestions = (
                 Suggestion(
-                    f"{len(passed_open)} of {len(ended)} blocks passed with "
-                    "the task still open — the estimates or the load are off.",
+                    f"{len(passed_open)} of {len(ended)} blocks ended with "
+                    "the task not done. Either the estimates are too small, "
+                    "or more is booked than the days can hold.",
                     weight=2.2,
                 ),
             )
@@ -134,15 +149,17 @@ def build(facts) -> Section:
         label="Blocks",
         summary=summary,
         detail=tuple(detail),
-        coverage=(
+        # Only when it says something: a task deleted from Taskwarrior leaves
+        # its blocks behind, and those can't be judged either way.
+        coverage=tuple(
             Coverage(
-                label="ended blocks belonged to a task we could still find",
+                label="ended blocks belong to a task that still exists",
                 qualifies="Blocks ended",
-                observed=sum(
-                    1 for b in ended if (b.task_uuid or "") in tasks
-                ),
+                observed=found,
                 total=len(ended),
-            ),
+            )
+            for found in [sum(1 for b in ended if (b.task_uuid or "") in tasks)]
+            if found < len(ended)
         ),
         data={
             "blocks": len(ended),

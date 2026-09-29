@@ -42,7 +42,7 @@ class Stagnant:
 
     @property
     def summary(self) -> str:
-        return f"{self.task.ref} {self.task.description} — {', '.join(self.reasons)}"
+        return f"{self.task.ref} {self.task.description}: {', '.join(self.reasons)}"
 
 
 def find(
@@ -74,10 +74,13 @@ def find(
         reasons: list[str] = []
         score = 0.0
         if pushes >= PUSH_THRESHOLD:
-            reasons.append(f"due pushed {pushes}x, +{days_pushed:.0f}d")
+            reasons.append(
+                f"due date pushed back {pushes} times, "
+                f"{days_pushed:.0f} days in all"
+            )
             score += pushes * 2
         if passed >= PASSED_BLOCK_THRESHOLD:
-            reasons.append(f"{passed} blocks passed")
+            reasons.append(f"{passed} blocks passed without it")
             score += passed
         if growth is not None and growth >= ESTIMATE_GROWTH:
             reasons.append(f"estimate grew {growth:.1f}x")
@@ -85,7 +88,7 @@ def find(
         # Age alone is not evidence — plenty of old tasks are fine where they
         # are. Age *plus* a moving deadline is a task being avoided.
         if age is not None and age >= OLD_DAYS and pushes:
-            reasons.append(f"open {age}d with a moving deadline")
+            reasons.append(f"open for {age} days")
             score += 2
 
         if reasons:
@@ -141,7 +144,7 @@ def prescribe(entry: Stagnant) -> Prescription:
     commands: list[tuple[str, str]] = []
     if entry.pushes >= PUSH_THRESHOLD:
         commands.append(
-            (f"task {ref} modify wait:someday", "not now, and stop pretending")
+            (f"task {ref} modify wait:someday", "hide it until you're ready for it")
         )
     if entry.passed_blocks >= PASSED_BLOCK_THRESHOLD or entry.estimate_growth:
         smaller = _smaller_estimate(entry.task.estimate_minutes)
@@ -149,10 +152,10 @@ def prescribe(entry: Stagnant) -> Prescription:
             commands.append(
                 (
                     f"task {ref} modify estimate:{smaller}",
-                    "shrink it to a first step you'd actually start",
+                    "cut it down to a first step you can start",
                 )
             )
-    commands.append((f"task {ref} delete", "be honest"))
+    commands.append((f"task {ref} delete", "drop it if it isn't happening"))
     return Prescription(entry=entry, commands=tuple(commands))
 
 

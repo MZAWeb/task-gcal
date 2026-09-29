@@ -33,14 +33,38 @@ from ...reflections import (
     load,
 )
 from ..model import Coverage, Section, Suggestion
+from ..words import plural
 
 KEY = "reasons"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "The reasons you gave for the blocks that did not go to plan. Empty "
-    "unless you run task-gcal checkin, and no answer counts against you."
+    "What you said happened when a block didn't go to plan, from task-gcal "
+    "checkin. Each reason points at a different fix, so the biggest one is "
+    "the one worth acting on."
 )
+
+# Each reason and outcome in the words the check-in offered, so the review
+# says back what you said rather than an internal code.
+_REASON_WORDS = {
+    "estimate": "needed more time",
+    "avoided": "put it off",
+    "capacity": "busy with other things",
+    "blocked": "blocked",
+    "reprioritized": "other priorities",
+    "follow_up": "planned follow-up",
+    REASON_UNKNOWN: "no reason given",
+}
+_OUTCOME_WORDS = {
+    OUTCOME_NOT_STARTED: "not started",
+    OUTCOME_PARTIAL: "started, not finished",
+    OUTCOME_PROGRESSED: "done for now, more to come",
+    OUTCOME_UNKNOWN: "unknown",
+}
+
+
+def _said(reason: str) -> str:
+    return _REASON_WORDS.get(reason, reason)
 
 # Outcomes that represent a commitment actually missed, and so have a "why"
 # worth counting. `progressed` is left out on purpose: work that was always
@@ -65,14 +89,14 @@ def build(facts) -> Section:
         return Section(
             key=KEY,
             label="Reasons",
-            summary="no check-ins for this period",
+            summary=f"no check-ins this {facts.period.kind}",
             measured=False,
             # Nothing is wrong: `checkin` is opt-in and hasn't been used.
             optional=True,
             detail=(
-                "`task-gcal checkin` records what happened and why. Without "
-                "it, follow-through and attempts are still measured — they "
-                "just can't say the cause.",
+                "Run `task-gcal checkin` to say what happened with blocks "
+                "that didn't go to plan. The rest of the review works "
+                "without it; this is the only place that knows why.",
             ),
             data={"answers": 0},
         )
@@ -82,39 +106,37 @@ def build(facts) -> Section:
     reasons = Counter(r.reason for r in misses if r.classified)
     unclassified = sum(1 for r in misses if not r.classified)
 
-    mix = " · ".join(f"{reason} {count}" for reason, count in reasons.most_common())
-    summary = mix or f"{len(answers)} check-in(s), no reason given"
+    mix = ", ".join(
+        f"{_said(reason)} {count}" for reason, count in reasons.most_common()
+    )
+    summary = mix or f"{plural(len(answers), 'check-in')}, no reason given"
     if unclassified:
-        summary += f" · {unclassified} unclassified"
+        summary += f", no reason given {unclassified}"
 
     detail = [
-        f"Check-ins          {len(answers)}",
-        "Outcomes:",
+        f"Check-ins         {len(answers)}",
+        "What happened:",
     ]
     for outcome, count in outcomes.most_common():
-        detail.append(f"  {count:>3}  {OUTCOME_LABELS.get(outcome, outcome)}")
+        words = _OUTCOME_WORDS.get(outcome) or OUTCOME_LABELS.get(outcome, outcome)
+        detail.append(f"  {count:>3}  {words}")
     if reasons:
-        detail.append("Reasons (confirmed misses only):")
+        detail.append("Why it didn't go to plan:")
         for reason, count in reasons.most_common():
-            detail.append(f"  {count:>3}  {reason}")
+            detail.append(f"  {count:>3}  {_said(reason)}")
     if unclassified:
-        detail.append(
-            f"  {unclassified:>3}  unknown — reported as missing, not "
-            "assigned a cause"
-        )
+        detail.append(f"  {unclassified:>3}  no reason given")
     continuations = sum(1 for r in answers if r.outcome == OUTCOME_PROGRESSED)
     if continuations:
         detail.append(
-            f"Planned continuations  {continuations} — work that always "
-            "needed another sitting, not friction"
+            f"Follow-ups        {plural(continuations, 'block')} did "
+            f"{'its' if continuations == 1 else 'their'} share of a longer "
+            "task (not counted as a miss)"
         )
 
     detail.extend(_shift(reasons, previous, facts))
     detail.extend(_actual_time(answers, facts))
     detail.extend(_patterns(misses, facts))
-    detail.append(
-        "No answer is scored. `avoided` costs nothing to admit, on purpose."
-    )
 
     suggestions = _suggest(reasons, facts)
 
@@ -125,12 +147,12 @@ def build(facts) -> Section:
         detail=tuple(detail),
         coverage=(
             Coverage(
-                label="confirmed misses carry a reason",
+                label="misses have a reason",
                 observed=len(misses) - unclassified,
                 total=len(misses),
             ),
             Coverage(
-                label="check-ins recorded actual minutes",
+                label="check-ins recorded time spent",
                 observed=sum(1 for r in answers if r.actual_minutes),
                 total=len(answers),
             ),
@@ -171,12 +193,11 @@ def _shift(reasons: Counter, previous: list, facts) -> list[str]:
     for reason in sorted(set(reasons) | set(before)):
         change = reasons[reason] - before[reason]
         if change:
-            moves.append(f"{reason} {change:+d}")
+            moves.append(f"{_said(reason)} {change:+d}")
+    label = f"Vs last {facts.period.kind}"
     if not moves:
-        return [
-            f"Since last {facts.period.kind}  the mix is unchanged",
-        ]
-    return [f"Since last {facts.period.kind}  {' · '.join(moves)}"]
+        return [f"{label:<16}  the same mix"]
+    return [f"{label:<16}  {', '.join(moves)}"]
 
 
 def _actual_time(answers, facts) -> list[str]:
@@ -196,17 +217,15 @@ def _actual_time(answers, facts) -> list[str]:
     ]
     if not pairs:
         return [
-            "Time used          no actuals recorded — blocks-to-completion "
-            "is the fallback",
+            "Time spent        not recorded; enter the minutes when you "
+            "check in to see how much of each block you used",
         ]
     planned = sum(p for p, _actual in pairs)
     actual = sum(a for _planned, a in pairs)
-    share = actual / planned if planned else 0
     return [
-        f"Time used          {humanize_minutes(actual)} of the "
-        f"{humanize_minutes(planned)} set aside",
-        f"  over             {len(pairs)} checked-in block(s)",
-        f"  share            {share:.0%} — says nothing about the estimates",
+        f"Time spent        {humanize_minutes(actual)} of the "
+        f"{humanize_minutes(planned)} booked ({actual / planned:.0%}), over "
+        f"{plural(len(pairs), 'block')}",
     ]
 
 
@@ -246,8 +265,8 @@ def _patterns(misses, facts) -> list[str]:
     """
     if len(misses) < _PATTERN_SAMPLE:
         return [
-            f"Patterns           need {_PATTERN_SAMPLE} confirmed misses; "
-            f"have {len(misses)}",
+            f"Patterns          shown from {_PATTERN_SAMPLE} misses on; "
+            f"{len(misses)} so far",
         ]
 
     tasks = facts.by_uuid()
@@ -271,19 +290,33 @@ def _patterns(misses, facts) -> list[str]:
             (_time_bucket(reflection.covers_until, tz), reflection.reason)
         ] += 1
 
-    out = ["Patterns (correlations, not diagnoses):"]
+    # Where the misses bunch up. Correlations, so each line says where, and
+    # leaves why to you.
+    where = {
+        "project": lambda bucket: (
+            "on tasks with no project"
+            if bucket == "(no project)"
+            else f"in project {bucket}"
+        ),
+        "task size": lambda bucket: {
+            "small": f"on tasks under {_LARGE_TASK_MINUTES // 60}h",
+            "large": f"on tasks of {_LARGE_TASK_MINUTES // 60}h or more",
+        }.get(bucket, "on tasks with no estimate"),
+        "time of day": lambda bucket: f"in the {bucket}",
+    }
+    out = ["Where the misses cluster:"]
     for label, tally in cuts.items():
         (bucket, reason), count = tally.most_common(1)[0]
         # Only worth a line if the leading combination is actually leading.
         if count < 2:
             continue
-        out.append(f"  {label:<12} {count} x {reason} in {bucket}")
+        out.append(f"  {count:>3}  {_said(reason)}, {where[label](bucket)}")
 
     meeting_share = facts.meeting_share()
     if meeting_share is not None:
         out.append(
-            f"  meeting load  the week was {meeting_share:.0%} meetings, "
-            "which is the denominator for all of the above"
+            f"The {facts.period.kind} was {meeting_share:.0%} meetings, "
+            "which may explain more of this than any pattern."
         )
     return out
 
@@ -298,23 +331,23 @@ def _suggest(reasons: Counter, facts) -> tuple[Suggestion, ...]:
     # Deliberately parallel in tone: each is a change to make, and none of
     # them is a judgement about the person who answered.
     advice = {
-        "estimate": "estimates are the constraint — try halving the scope of "
-                    "the next few instead of doubling the time",
-        "blocked": "dependencies are the constraint — the fix is chasing them "
-                   "earlier, not planning harder",
-        "capacity": "the weeks aren't going to plan — commit to less up front",
-        "reprioritized": "the plan is being overtaken — plan a shorter horizon "
-                         "rather than a fuller one",
-        "avoided": "the hard-to-start ones need a smaller first step, not a "
-                   "bigger block",
+        "estimate": "Cut the next few tasks smaller rather than booking "
+                    "longer blocks",
+        "blocked": "Chase what you're waiting on earlier, before its block "
+                   "comes round",
+        "capacity": "Book less up front and leave room for what comes up",
+        "reprioritized": "New priorities keep overtaking the plan; plan fewer "
+                         "days ahead",
+        "avoided": "Give the tasks you avoid a small, easy first step "
+                   "instead of a bigger block",
         REASON_UNKNOWN: "",
     }.get(reason, "")
     if not advice:
         return ()
     return (
         Suggestion(
-            f"`{reason}` explains {count} of this {facts.period.kind}'s "
-            f"misses — {advice}.",
+            f'"{_said(reason).capitalize()}" was the reason for '
+            f"{count} of this {facts.period.kind}'s misses. {advice}.",
             weight=3.4,
         ),
     )

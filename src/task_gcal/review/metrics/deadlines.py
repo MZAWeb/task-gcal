@@ -23,15 +23,15 @@ coverage rather than smoothed over.
 from __future__ import annotations
 
 from ..model import Coverage, Section, Suggestion
+from ..words import plural, times
 
 KEY = "dates"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "Counts due dates: which ones you moved, how far, and whether the work "
-    "landed by the date in the end. Independent of the calendar — a task with "
-    "no time set aside can still miss its date. Moving a date is not "
-    "automatically bad; how often you do it is the interesting part."
+    "Due dates you moved, how far, and whether finished tasks landed on "
+    "their date. Moving a date once is normal; moving the same one again and "
+    "again usually means the task isn't really going to happen."
 )
 
 # A task pushed this many times has stopped being a deadline and become a
@@ -49,7 +49,6 @@ def build(facts) -> Section:
     # are real even if our reach starts mid-period. How far back the history
     # goes is a coverage question, not a measured/unmeasured one.
     has_history = facts.changes.earliest is not None
-    covers_period = facts.change_history_reaches_period()
 
     pushed = {
         uuid: t.pushes(within=window)
@@ -75,7 +74,7 @@ def build(facts) -> Section:
         return Section(
             key=KEY,
             label="Dates",
-            summary="no deadline history for this period",
+            summary="no task history yet",
             measured=False,
             data={},
         )
@@ -88,34 +87,41 @@ def build(facts) -> Section:
     )
     summary_parts = []
     if push_count:
-        moved = f"{len(pushed)} task{'' if len(pushed) == 1 else 's'} moved a due date"
+        moved = (
+            f"{plural(len(pushed), 'task')} had a due date pushed back"
+        )
         if push_count > len(pushed):
-            moved += f", {push_count} times between them"
-        summary_parts.append(f"{moved}, the longest by {longest:.0f} days.")
+            moved += f", {plural(push_count, 'time')} in all"
+        summary_parts.append(
+            f"{moved}, the furthest by {plural(round(longest), 'day')}."
+        )
     if with_due:
         summary_parts.append(
-            f"Of the {len(with_due)} finished with a date, "
-            f"{len(met_final)} landed on it."
+            f"{len(met_final)} of the {plural(len(with_due), 'task')} "
+            "finished with a due date made it on time."
         )
-    summary = " ".join(summary_parts) or "no dates moved, and none were met"
+    summary = " ".join(summary_parts) or "no due dates moved"
 
     detail = [
-        f"Deadline pushes    {push_count} across {len(pushed)} task(s), "
-        f"longest {longest:.0f} day(s)",
-        f"  after the old date {reactive} (a miss being reported)",
-        f"  before it          {push_count - reactive} (a commitment being "
-        "renegotiated)",
-        f"Met the final date {len(met_final)} of {len(with_due)} completed "
-        "task(s) with a due date",
-        f"Met the original   {len(met_original)} of {len(with_due)}",
-        f"Late on a date we never saw move  {len(missed_unchanged)}",
+        f"Dates pushed back  {plural(push_count, 'time')} on "
+        f"{plural(len(pushed), 'task')}, the furthest by "
+        f"{plural(round(longest), 'day')}",
+        f"  after missing    {reactive}, moved once the date had passed",
+        f"  in advance       {push_count - reactive}, moved before the date "
+        "came",
+        f"On time            {len(met_final)} of {len(with_due)} finished "
+        "tasks with a due date",
+        f"On the first date  {len(met_original)} of {len(with_due)}, without "
+        "the date ever moving later",
+        f"Late, date kept    {len(missed_unchanged)} finished after a date "
+        "that was never moved",
     ]
 
     offenders = sorted(
         pushed.items(), key=lambda item: len(item[1]), reverse=True
     )
     if offenders:
-        detail.append("Most-moved deadlines:")
+        detail.append("Pushed back most:")
         for uuid, changes in offenders[:_TOP_OFFENDERS]:
             moved = sum(c.days for c in changes)
             detail.append(
@@ -134,9 +140,10 @@ def build(facts) -> Section:
         if total_pushes >= _REPEAT_OFFENDER:
             suggestions.append(
                 Suggestion(
-                    f'"{facts.label_for(uuid)}" was deferred for the '
-                    f"{_ordinal(total_pushes)} time — decide whether it is "
-                    "real.",
+                    f'"{facts.label_for(uuid)}" has had its due date pushed '
+                    f"back {times(total_pushes)}. Decide whether you're really "
+                    "going to do it: book it properly, shrink it, or delete "
+                    "it.",
                     # The strongest routine finding: a deadline moved three
                     # times is a decision nobody has made yet.
                     weight=4.0,
@@ -147,8 +154,10 @@ def build(facts) -> Section:
     if not suggestions and missed_unchanged:
         suggestions.append(
             Suggestion(
-                f"{len(missed_unchanged)} task(s) finished late against a "
-                "date nobody moved — the dates aren't being used.",
+                f"{plural(len(missed_unchanged), 'task')} finished after a "
+                "due date that was never moved. If dates keep being missed "
+                "quietly, they aren't helping: set fewer, or set them "
+                "honestly.",
                 weight=2.4,
             )
         )
@@ -160,14 +169,9 @@ def build(facts) -> Section:
         detail=tuple(detail),
         coverage=(
             Coverage(
-                label="completed tasks had a due date to judge",
+                label="finished tasks had a due date",
                 observed=len(with_due),
                 total=len(completed),
-            ),
-            Coverage(
-                label="the period is covered by harvested change history",
-                observed=1 if covers_period else 0,
-                total=1,
             ),
         ),
         data={
@@ -233,10 +237,3 @@ def _periods_already_true(timeline, facts) -> int:
             return back - 1
     return _REPEAT_LOOKBACK
 
-
-def _ordinal(n: int) -> str:
-    if 10 <= n % 100 <= 20:
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    return f"{n}{suffix}"

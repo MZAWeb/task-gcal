@@ -31,15 +31,17 @@ from datetime import datetime
 
 from ...config import parse_task_overrides
 from ...intervals import humanize_minutes, merge, subtract, total_minutes
-from ..model import Coverage, Section, Suggestion
+from ..model import Section, Suggestion
+from ..words import plural
 from ..periods import work_windows
 
 KEY = "after_hours"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "Work that ended up outside your working hours — evenings and "
-    "weekends — and any per-task settings that widened the window."
+    "Blocks booked outside your working hours, on evenings and weekends. "
+    "These only happen when a task's gcal: setting allows them, so this also "
+    "counts the tasks that were allowed to."
 )
 
 # Keys that buy time outside the default window, as opposed to narrowing it
@@ -190,50 +192,50 @@ def build(facts) -> Section:
         return Section(
             key=KEY,
             label="After hours",
-            summary="nothing placed outside working hours",
+            summary="nothing booked outside working hours",
             data=measurements,
         )
 
     pieces = []
     if evenings:
         pieces.append(
-            f"{humanize_minutes(evening_minutes)} on "
-            f"{len(evenings)} evening{'' if len(evenings) == 1 else 's'}"
+            f"{humanize_minutes(evening_minutes)} over "
+            f"{plural(len(evenings), 'evening')}"
         )
     if weekend_days:
         pieces.append(
-            f"{humanize_minutes(weekend_minutes)} on "
-            f"{len(weekend_days)} weekend day{'' if len(weekend_days) == 1 else 's'}"
+            f"{humanize_minutes(weekend_minutes)} over "
+            f"{plural(len(weekend_days), 'weekend day')}"
         )
     if not pieces and outside_minutes:
         pieces.append(f"{humanize_minutes(outside_minutes)} outside your hours")
-    summary = ", ".join(pieces) or "nothing outside your working hours"
+    summary = " and ".join(pieces) or "nothing booked outside working hours"
     # One evening is a Tuesday, not a pattern, and this is the section with the
     # most built-in moral edge — so it gets the highest bar before it speaks.
     if outside_minutes and len(evenings) + len(weekend_days) < 2:
-        summary += " — one-off, not a pattern"
+        summary += ", a one-off"
 
+    # The time actually booked is the finding. How many tasks were *allowed*
+    # outside hours is only worth a line when some were: it says where the
+    # permission came from. Narrowing and packing settings (`work_days=4`,
+    # `buffer_minutes=0`) are nothing to do with after-hours work, so they
+    # stay in `data` rather than being listed here as a non-finding.
     detail = [
-        f"Claimed outside hours  {humanize_minutes(outside_minutes)}",
-        f"  evenings             {len(evenings)} day(s), "
-        f"{humanize_minutes(evening_minutes)}",
-        f"  weekend days         {len(weekend_days)} day(s), "
-        f"{humanize_minutes(weekend_minutes)}",
-        f"Overrides              {overrides['widening']} widening, "
-        f"{overrides['narrowing']} narrowing, {overrides['density']} density",
-        "  counted on tasks this period involved; the UDA carries no date "
-        "of its own",
-        f"Capacity bought        {humanize_minutes(bought)} of extra window "
-        "(intent, not time spent)",
+        f"Outside hours     {humanize_minutes(outside_minutes)} in total",
+        f"  evenings        {humanize_minutes(evening_minutes)} over "
+        f"{plural(len(evenings), 'day')}",
+        f"  weekends        {humanize_minutes(weekend_minutes)} over "
+        f"{plural(len(weekend_days), 'day')}",
     ]
+    if overrides["widening"]:
+        detail.append(
+            f"Tasks allowed     {overrides['widening']} had a gcal: setting "
+            "that lets them run outside working hours"
+        )
     if payers:
-        detail.append("Paid for by:")
+        detail.append("Those tasks by project:")
         for project, count in payers.most_common(5):
-            detail.append(f"  {count}x  {project}")
-    detail.append(
-        "Narrowing overrides are the opposite of erosion and are counted "
-        "separately on purpose."
-    )
+            detail.append(f"  {count}  {project}")
 
     suggestions: tuple[Suggestion, ...] = ()
     if payers and weekend_days:
@@ -241,9 +243,9 @@ def build(facts) -> Section:
         if count >= 2:
             suggestions = (
                 Suggestion(
-                    f"{project} keeps taking time outside working hours "
-                    f"({count} task(s)) — the estimate or the commitment is "
-                    "wrong, not your weekend.",
+                    f"{project} keeps running into your evenings and "
+                    f"weekends ({plural(count, 'task')}). Fix its estimates "
+                    "or what you've committed to, not your weekend.",
                     weight=2.8,
                 ),
             )
@@ -253,13 +255,6 @@ def build(facts) -> Section:
         label="After hours",
         summary=summary,
         detail=tuple(detail),
-        coverage=(
-            Coverage(
-                label="days of the period the calendar covered",
-                observed=len(period.days()),
-                total=len(period.days()),
-            ),
-        ),
         data=measurements,
         suggestions=suggestions,
     )

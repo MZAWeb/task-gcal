@@ -88,11 +88,11 @@ def test_the_period_coverage_of_the_change_history_is_reported(review):
     # harvested history actually covers the period being reported on.
     review.tasks(a_task(uuid="a", due=at(4, 17)))
     review.changes(due_moved("a", at(1, 9), at(1, 17), at(4, 17)))
-    (_due, coverage) = data(review, deadlines.KEY).coverage
+    detail = "\n".join(data(review, deadlines.KEY).detail)
 
-    assert "harvested change history" in coverage.label
-    assert coverage.observed == 0  # history starts mid-period here
-    assert "starts" in "\n".join(data(review, deadlines.KEY).detail)
+    # History starts mid-period here, so earlier date changes are unknown.
+    assert "only goes back to" in detail
+    assert "unknown" in detail
 
 
 def test_reactive_and_proactive_pushes_are_separated(review):
@@ -109,8 +109,8 @@ def test_reactive_and_proactive_pushes_are_separated(review):
     assert section.data["proactive_pushes"] == 1
     # And neither is called worse than the other.
     text = "\n".join(section.detail)
-    assert "a miss being reported" in text
-    assert "being renegotiated" in text
+    assert "moved once the date had passed" in text
+    assert "moved before the date came" in text
 
 
 def test_the_ledger_separates_the_original_promise_from_the_final_one(review):
@@ -154,7 +154,7 @@ def test_a_third_push_becomes_the_reviews_closing_line(review):
     )
     adjustment = review.review().adjustment
     assert "Prepare PIR" in adjustment
-    assert "3rd time" in adjustment
+    assert "pushed back 3 times" in adjustment
 
 
 def test_the_closing_line_says_when_it_is_repeating_itself(review):
@@ -176,7 +176,7 @@ def test_the_closing_line_says_when_it_is_repeating_itself(review):
     adjustment = review.review().adjustment
 
     assert "Prepare PIR" in adjustment
-    assert "2nd week running that I've closed with this" in adjustment
+    assert "2nd week in a row it has been the top item" in adjustment
 
 
 def test_a_finding_that_is_new_this_week_is_said_plainly(review):
@@ -193,7 +193,7 @@ def test_a_finding_that_is_new_this_week_is_said_plainly(review):
     adjustment = review.review().adjustment
 
     assert "Prepare PIR" in adjustment
-    assert "running" not in adjustment
+    assert "in a row" not in adjustment
 
 
 def test_deadlines_are_unmeasured_without_any_history(review):
@@ -203,7 +203,7 @@ def test_deadlines_are_unmeasured_without_any_history(review):
 
 def test_no_change_history_says_so_rather_than_reporting_nothing_moved(review):
     review.tasks(a_task(uuid="a", status="completed", due=at(4, 17), end=at(3, 16)))
-    assert "No task-change history yet" in "\n".join(
+    assert "No task history yet" in "\n".join(
         data(review, deadlines.KEY).detail
     )
 
@@ -420,7 +420,7 @@ def test_a_malformed_override_does_not_crash_the_metric(review):
 
 def test_nothing_outside_hours_is_reported_as_nothing(review):
     review.blocks(a_block("a", at(0, 10), 60))
-    assert "nothing placed outside" in data(review, boundaries.KEY).summary
+    assert "nothing booked outside" in data(review, boundaries.KEY).summary
 
 
 # ---------------------------------------------------------------------------
@@ -454,7 +454,7 @@ def test_the_reason_mix_is_reported(review, isolated_journal):
 
     section = data(review, friction.KEY)
     assert section.data["reasons"] == {"capacity": 2, "avoided": 1}
-    assert section.summary.startswith("capacity 2")
+    assert section.summary.startswith("busy with other things 2")
 
 
 def test_unknown_is_reported_as_unclassified(review, isolated_journal):
@@ -464,7 +464,7 @@ def test_unknown_is_reported_as_unclassified(review, isolated_journal):
 
     section = data(review, friction.KEY)
     assert section.data["unclassified"] == 1
-    assert "unclassified" in section.summary
+    assert "no reason given" in section.summary
     (coverage, _actuals) = section.coverage
     assert (coverage.observed, coverage.total) == (1, 2)
 
@@ -475,8 +475,11 @@ def test_no_answer_is_scored(review, isolated_journal):
     reflections.append(a_reflection(reason="avoided"))
     review.tasks(a_task(uuid="a"))
 
-    text = "\n".join(data(review, friction.KEY).detail)
-    assert "avoided` costs nothing to admit" in text
+    section = data(review, friction.KEY)
+    text = "\n".join(section.detail).lower()
+    assert "score" not in text and "bad" not in text
+    # One answer is a report, not a pattern to act on.
+    assert section.suggestions == ()
 
 
 def test_a_done_outcome_is_not_counted_as_a_miss(review, isolated_journal):
@@ -504,9 +507,9 @@ def test_time_used_is_compared_with_the_block_not_the_estimate(review, isolated_
     review.tasks(a_task(uuid="a", estimate=240))
 
     text = "\n".join(data(review, friction.KEY).detail)
-    assert "20m of the 1h set aside" in text
+    assert "20m of the 1h booked" in text
     assert "33%" in text
-    assert "says nothing about the estimates" in text
+    assert "booked" in text and "estimate" not in text
 
 
 def test_an_actual_with_no_block_length_is_not_a_share(review, isolated_journal):
@@ -516,7 +519,7 @@ def test_an_actual_with_no_block_length_is_not_a_share(review, isolated_journal)
     )
     review.tasks(a_task(uuid="a", estimate=60))
 
-    assert "no actuals recorded" in "\n".join(data(review, friction.KEY).detail)
+    assert "not recorded" in "\n".join(data(review, friction.KEY).detail)
 
 
 def test_a_planned_continuation_is_not_counted_as_friction(review, isolated_journal):
@@ -533,7 +536,7 @@ def test_a_planned_continuation_is_not_counted_as_friction(review, isolated_jour
     section = data(review, friction.KEY)
     assert section.data["reasons"] == {"capacity": 1}
     assert section.data["continuations"] == 1
-    assert "not friction" in "\n".join(section.detail)
+    assert "not counted as a miss" in "\n".join(section.detail)
 
 
 def test_patterns_wait_for_a_sample(review, isolated_journal):
@@ -541,7 +544,7 @@ def test_patterns_wait_for_a_sample(review, isolated_journal):
     review.tasks(a_task(uuid="a"))
 
     text = "\n".join(data(review, friction.KEY).detail)
-    assert "need 8 confirmed misses" in text
+    assert "shown from 8 misses on" in text
 
 
 def test_patterns_are_presented_as_correlations(review, isolated_journal):
@@ -552,8 +555,8 @@ def test_patterns_are_presented_as_correlations(review, isolated_journal):
     review.tasks(a_task(uuid="a", project="fraud"))
 
     text = "\n".join(data(review, friction.KEY).detail)
-    assert "correlations, not diagnoses" in text
-    assert "avoided in fraud" in text
+    assert "Where the misses cluster" in text
+    assert "put it off, in project fraud" in text
 
 
 def test_the_dominant_reason_becomes_a_change_not_a_verdict(review, isolated_journal):
@@ -562,8 +565,8 @@ def test_the_dominant_reason_becomes_a_change_not_a_verdict(review, isolated_jou
     review.tasks(a_task(uuid="a"))
 
     adjustment = review.review().adjustment
-    assert "estimate" in adjustment
-    assert "halving the scope" in adjustment
+    assert "Needed more time" in adjustment
+    assert "smaller" in adjustment
 
 
 # ---------------------------------------------------------------------------
@@ -589,7 +592,7 @@ def test_repeated_pushes_make_a_task_stagnant(review):
     )
     (entry,) = stagnant_for(review)
     assert entry.pushes == 3
-    assert "due pushed 3x" in entry.summary
+    assert "due date pushed back 3 times" in entry.summary
 
 
 def test_passed_blocks_make_a_task_stagnant(review):
@@ -645,12 +648,12 @@ def test_triage_suggests_waiting_only_for_a_repeatedly_pushed_task(review):
 def test_triage_always_offers_the_honest_option(review):
     review.tasks(a_task(uuid="a", id=40))
     review.blocks(a_block("a", at(0, 9), 60), a_block("a", at(1, 9), 60))
-    assert "# be honest" in triage.render(review.facts())
+    assert "task 40 delete" in triage.render(review.facts())
 
 
 def test_triage_with_nothing_stagnant_says_so(review):
     review.tasks(a_task(uuid="a"))
-    assert "Nothing is stagnant" in triage.render(review.facts())
+    assert "Nothing looks stuck" in triage.render(review.facts())
 
 
 def test_a_shrunk_estimate_is_a_first_step_not_the_whole_thing(review):
@@ -690,7 +693,7 @@ def test_the_stagnation_section_points_at_triage(review):
 def test_a_clean_backlog_is_reported_as_clean(review):
     review.tasks(a_task(uuid="a"))
     section = data(review, stagnation_section.KEY)
-    assert "nothing has accumulated" in section.summary
+    assert "no open task looks stuck" in section.summary
     assert section.suggestions == ()
 
 
@@ -719,10 +722,8 @@ def test_a_recurring_instance_is_recognized_by_its_parent(review):
 def test_the_stagnation_coverage_says_recurring_ones_were_excluded(review):
     review.tasks(a_task(uuid="a", recur="weekly"), a_task(uuid="b"))
     section = data(review, stagnation_section.KEY)
-    (coverage,) = section.coverage
-
-    assert (coverage.observed, coverage.total) == (1, 2)
-    assert "recurring ones excluded" in coverage.label
+    assert section.data["recurring_excluded"] == 1
+    assert section.data["stagnant"] == 0
 
 
 def test_recurring_completions_are_reported_separately(review):
@@ -736,7 +737,7 @@ def test_recurring_completions_are_reported_separately(review):
 
     assert section.data["completed"] == 2
     assert section.data["recurring"] == 1
-    assert "1 was a recurring task" in "\n".join(section.detail)
+    assert "Recurring         1 of them" in "\n".join(section.detail)
 
 
 def test_a_normal_task_is_not_treated_as_recurring(review):
@@ -762,9 +763,9 @@ def test_patterns_cut_by_project_size_and_time_of_day(review, isolated_journal):
     review.tasks(a_task(uuid="big", project="fraud", estimate=240))
 
     text = "\n".join(data(review, friction.KEY).detail)
-    assert "project      8 x avoided in fraud" in text
-    assert "task size    8 x avoided in large" in text
-    assert "time of day  8 x avoided in evening" in text
+    assert "8  put it off, in project fraud" in text
+    assert "8  put it off, on tasks of 2h or more" in text
+    assert "8  put it off, in the evening" in text
 
 
 def test_patterns_report_the_meeting_load_as_the_denominator(
@@ -776,8 +777,7 @@ def test_patterns_report_the_meeting_load_as_the_denominator(
     review.meetings(*[(at(day, 9), at(day, 15)) for day in range(5)])
 
     text = "\n".join(data(review, friction.KEY).detail)
-    assert "meeting load" in text
-    assert "denominator" in text
+    assert "71% meetings" in text
 
 
 def test_a_task_with_no_estimate_is_its_own_size_bucket(review, isolated_journal):
@@ -833,7 +833,7 @@ def test_the_repetition_clause_is_available_on_its_own(review):
     built = review.review()
 
     note = built.repetition_note()
-    assert note == "This is the 2nd week running that I've closed with this."
+    assert note == "This is the 2nd week in a row it has been the top item."
     # The sentence is the finding plus the clause, and nothing else.
     _origin, suggestion = built.closing
     assert built.adjustment == f"{suggestion.text} {note}"

@@ -77,7 +77,7 @@ def test_capacity_says_so_when_the_calendar_could_not_be_read(review):
 
     assert section.measured is False
     assert "unknown" in section.summary
-    assert "couldn't read the calendar" in section.summary
+    assert "calendar couldn't be read" in section.summary
 
 
 def test_a_meeting_heavy_week_becomes_the_closing_suggestion(review):
@@ -102,7 +102,7 @@ def test_overplanning_outranks_a_meeting_heavy_week(review):
 
     section = data(review, capacity.KEY)
     assert len(section.suggestions) == 2
-    assert "planned" in review.review().adjustment
+    assert "booked" in review.review().adjustment
 
 
 def test_buying_an_evening_is_not_reported_as_overcommitting_the_day(review):
@@ -128,14 +128,14 @@ def test_the_planned_share_never_exceeds_what_was_left(review):
     review.blocks(*[a_block(f"u{d}", at(d, 18), 180) for d in range(4)])
 
     detail = "\n".join(data(review, capacity.KEY).detail)
-    assert "0% of what was left" in detail
-    assert "12h outside hours" in detail
+    assert "0% of the free time" in detail
+    assert "12h more, outside working hours" in detail
 
 
-def test_capacity_reports_days_observed(review):
-    (coverage,) = data(review, capacity.KEY).coverage
-    assert coverage.total == 5  # Monday through Friday so far
-    assert coverage.observed == 0
+def test_time_does_not_claim_to_depend_on_runs(review):
+    # Working hours and meetings come straight from the calendar, so how many
+    # days task-gcal happened to run says nothing about them.
+    assert data(review, capacity.KEY).coverage == ()
 
 
 # ---------------------------------------------------------------------------
@@ -161,13 +161,12 @@ def test_throughput_sums_estimates_and_never_calls_them_time_spent(review):
     section = data(review, throughput.KEY)
 
     assert section.data["planned_minutes"] == 150
-    # "of estimates" rather than "planned" or anything resembling time spent:
-    # the number is what you said it would take, and it must not read as what
-    # it took.
-    assert "2h30 of estimates" in section.summary
+    # "estimated at" rather than anything resembling time spent: the number
+    # is what you said it would take, and it must not read as what it took.
+    assert "estimated at 2h30" in section.summary
     assert "worked" not in section.summary.lower()
     assert "spent" not in section.summary.lower()
-    assert any("not time spent" in line for line in section.detail)
+    assert any("not time tracked" in line for line in section.detail)
 
 
 def test_a_missing_estimate_is_missing_not_zero(review):
@@ -191,7 +190,7 @@ def test_throughput_compares_with_the_previous_period(review):
 
     assert section.data["previous_completed"] == 2
     # The count, not a delta: "-1" is a score, "2 by this point" is a fact.
-    assert "2 by the same point last week" in section.summary
+    assert "2 by this point last week" in section.summary
 
 
 def test_a_part_finished_week_is_compared_with_the_same_stretch(review):
@@ -206,7 +205,7 @@ def test_a_part_finished_week_is_compared_with_the_same_stretch(review):
     section = data(review, throughput.KEY)
 
     assert section.data["previous_completed"] == 1
-    assert "same point last week" in section.summary
+    assert "this point last week" in section.summary
 
 
 def test_a_finished_period_is_compared_with_the_whole_previous_one(review):
@@ -219,7 +218,7 @@ def test_a_finished_period_is_compared_with_the_whole_previous_one(review):
     section = data(review, throughput.KEY)
 
     assert section.data["previous_completed"] == 2
-    assert "2 by the previous week" in section.summary
+    assert "2 by the week before" in section.summary
 
 
 def test_throughput_breaks_down_by_project(review):
@@ -262,7 +261,7 @@ def test_flow_counts_created_completed_and_deleted(review):
 
 def test_a_growing_backlog_becomes_a_suggestion(review):
     review.tasks(*[a_task(uuid=f"u{i}", entry=at(0, 9)) for i in range(6)])
-    assert "backlog grew" in review.review().adjustment
+    assert "open list grew by" in review.review().adjustment
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +293,7 @@ def test_lead_time_is_unmeasured_with_nothing_completed(review):
     section = data(review, flow.KEY_LEAD_TIME)
 
     assert section.measured is False
-    assert "nothing completed" in section.summary
+    assert "nothing was finished" in section.summary
 
 
 def test_a_task_completed_before_it_was_created_is_excluded(review):
@@ -354,7 +353,7 @@ def test_work_with_no_block_is_reported_as_off_plan(review):
     section = data(review, followthrough.KEY)
 
     assert section.data["off_plan"] == 1
-    assert "1 task finished with no block at all" in section.summary
+    assert "1 task was finished without a block" in section.summary
 
 
 def test_the_worst_hour_is_reported(review):

@@ -28,15 +28,15 @@ def render(facts) -> str:
     )
     if not entries:
         return (
-            "Nothing is stagnant: no open task has enough evidence against it "
-            "to need a decision.\n"
+            "Nothing looks stuck: no open task has enough signs against it to "
+            "need a decision.\n"
         )
 
-    lines = [f"Stuck ({len(entries)}):"]
+    lines = [f"Stuck ({len(entries)}), most stuck first:"]
     for entry in entries:
         lines.append(f"  {entry.summary}")
         for command, why in prescribe(entry).commands:
             lines.append(f"      {command.ljust(_COMMENT_COLUMN)}# {why}")
         lines.append("")
-    lines.append("Nothing above has been run. Paste the ones you agree with.")
+    lines.append("Nothing above has been run. Copy the ones you want.")
     return "\n".join(lines) + "\n"

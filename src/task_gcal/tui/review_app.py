@@ -273,7 +273,7 @@ class ReviewScreen(Screen[None]):
         else:
             out.append_text(_coverage_bar(seen, total))
             out.append(" ")
-        out.append(f"{seen} of {total} days seen", style="dim")
+        out.append(f"task-gcal ran on {seen} of {total} days", style="dim")
         return out
 
     def _build_nav(self, page: ReviewPage) -> None:
@@ -478,14 +478,13 @@ class ReviewScreen(Screen[None]):
         commands.clear_options()
         if not page.stuck:
             intro.update(
-                "Nothing is stagnant: no open task has enough evidence against "
-                "it to need a decision."
+                "Nothing looks stuck: no open task has enough signs against it "
+                "to need a decision."
             )
             return
         intro.update(
-            "Each command would resolve one stuck task. Nothing here is run: "
-            "Enter or y copies the highlighted one, and you paste the ones you "
-            "agree with."
+            "Commands that would settle each stuck task. Nothing here is run: "
+            "Enter or y copies the highlighted one for you to paste."
         )
         # One column for every command, so the reasons line up to read down.
         width = max(

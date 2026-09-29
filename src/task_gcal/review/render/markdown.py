@@ -13,9 +13,9 @@ from ..model import Review, Section
 
 def render(review: Review, *, sections: tuple[Section, ...], detailed: bool) -> str:
     title = review.period.label
-    if review.observed is not None:
+    if review.observed is not None and review.observed[0] < review.observed[1]:
         seen, total = review.observed
-        title += f" · {seen} of {total} days seen"
+        title += f" · task-gcal ran on {seen} of {total} days"
     lines: list[str] = [f"# {title}", ""]
     stamp = review.generated_at.astimezone(review.period.tz)
     lines.append(f"*Generated {stamp:%Y-%m-%d %H:%M %Z}*")

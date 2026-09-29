@@ -9,15 +9,16 @@ deadline slipping, and an estimate doubling is a different one again.
 from __future__ import annotations
 
 from ...intervals import humanize_minutes
-from ..model import Coverage, Section, Suggestion
+from ..model import Section, Suggestion
+from ..words import plural
 
 KEY = "growth"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "Tasks that quietly turned into bigger tasks: the estimate revised up, "
-    "the title rewritten, the start date pushed out. Usually a sign it was "
-    "never one task."
+    "Tasks that turned out bigger than planned: the estimate raised or the "
+    "title rewritten, which usually means it was several tasks all along. "
+    "Also counts tasks you postponed on purpose with a wait or scheduled date."
 )
 
 # An estimate that has grown this much was not an estimate.
@@ -32,7 +33,7 @@ def build(facts) -> Section:
         return Section(
             key=KEY,
             label="Tasks that grew",
-            summary="no change history for this period",
+            summary="no task history yet",
             measured=False,
             data={},
         )
@@ -62,20 +63,22 @@ def build(facts) -> Section:
 
     summary_parts = []
     if grew:
-        summary_parts.append(f"{len(grew)} estimate(s) revised up")
+        summary_parts.append(f"{plural(len(grew), 'estimate')} raised")
     if retitled:
-        summary_parts.append(f"{len(retitled)} retitled")
+        summary_parts.append(f"{plural(len(retitled), 'task')} renamed")
     if deferred:
-        summary_parts.append(f"{len(deferred)} deliberately deferred")
-    summary = " · ".join(summary_parts) or "no scope changes observed"
+        summary_parts.append(f"{plural(len(deferred), 'task')} postponed")
+    summary = ", ".join(summary_parts) or "no task changed size"
 
     detail = [
-        f"Estimates revised up   {len(grew)} task(s)",
-        f"Titles rewritten       {len(retitled)} task(s)",
-        f"Scheduled/wait moved   {len(deferred)} task(s) "
-        "(deferral, not a deadline slipping)",
-        f"Estimates that doubled {len(ballooned)}",
+        f"Estimate raised    {plural(len(grew), 'task')}",
+        f"Estimate doubled   {plural(len(ballooned), 'task')}",
+        f"Renamed            {plural(len(retitled), 'task')}",
+        f"Postponed          {plural(len(deferred), 'task')}, by moving a "
+        "wait or scheduled date (not the due date)",
     ]
+    if ballooned:
+        detail.append("Estimates that doubled:")
     for uuid, first, last in ballooned[:5]:
         detail.append(
             f"  {humanize_minutes(first)} → {humanize_minutes(last)}  "
@@ -88,8 +91,9 @@ def build(facts) -> Section:
         suggestions = (
             Suggestion(
                 f'"{facts.label_for(uuid)}" grew from '
-                f"{humanize_minutes(first)} to {humanize_minutes(last)} — "
-                "it's a project, so split it.",
+                f"{humanize_minutes(first)} to {humanize_minutes(last)}. "
+                "That's a project, not a task: split it into pieces you can "
+                "finish in one sitting.",
                 weight=3.2,
             ),
         )
@@ -99,13 +103,6 @@ def build(facts) -> Section:
         label="Tasks that grew",
         summary=summary,
         detail=tuple(detail),
-        coverage=(
-            Coverage(
-                label="the period is covered by harvested change history",
-                observed=1 if facts.change_history_reaches_period() else 0,
-                total=1,
-            ),
-        ),
         data={
             "estimates_up": len(grew),
             "retitled": len(retitled),

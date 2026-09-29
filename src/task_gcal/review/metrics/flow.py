@@ -13,17 +13,20 @@ from typing import Optional, Sequence
 
 from ...intervals import humanize_duration
 from ..model import Coverage, Section, Suggestion
+from ..words import plural
 
 KEY_FLOW = "backlog"
 KEY_LEAD_TIME = "lead_time"
 
 # What these sections mean, in plain language, for a report's glossary.
 MEANS_FLOW = (
-    "Whether work is arriving faster than you are finishing it. A net of +9 "
-    "means nine more tasks are open than when the period started."
+    "Whether tasks are coming in faster than you finish them. If the open "
+    "list keeps growing, working faster won't fix it: taking on less will."
 )
 MEANS_LEAD_TIME = (
-    "How long a task waits between being written down and being finished."
+    "How long the tasks you finished had been waiting since you created "
+    "them. The median is a typical task; the slowest ones are the backlog "
+    "you keep not getting to."
 )
 
 # Net growth beyond this many tasks in one period is worth a closing note
@@ -62,18 +65,23 @@ def build_flow(facts) -> Section:
     # a confident "0 deleted" next to a rule that says missing is never zero
     # teaches the reader to read zeros as nothing-happened, and one of those
     # two zeros means something else.
-    grew = "longer" if net >= 0 else "shorter"
+    if net > 0:
+        change = f"the open list grew by {net}"
+    elif net < 0:
+        change = f"the open list shrank by {-net}"
+    else:
+        change = "the open list is the same size"
     summary = (
-        f"{len(created)} new, {len(completed)} done"
-        + (f", {len(deleted)} dropped" if deleted else "")
-        + f" — the list is {abs(net)} {grew}"
+        f"{len(created)} added, {len(completed)} finished"
+        + (f", {len(deleted)} deleted" if deleted else "")
+        + f": {change}"
     )
     detail = (
-        f"Created           {len(created)}",
-        f"Completed         {len(completed)}",
+        f"Added             {len(created)}",
+        f"Finished          {len(completed)}",
         f"Deleted           {len(deleted)}",
         f"Net change        {net:+d}",
-        f"Still open        "
+        f"Open now          "
         f"{sum(1 for t in facts.tasks if t.status == 'pending')}",
     )
 
@@ -81,8 +89,9 @@ def build_flow(facts) -> Section:
     if net >= _GROWTH_THRESHOLD:
         suggestions = (
             Suggestion(
-                f"The backlog grew by {net} tasks this "
-                f"{facts.period.kind} — the constraint is intake, not speed.",
+                f"Your open list grew by {net} this {facts.period.kind}: more "
+                "is coming in than you can finish. Say no to more, or delete "
+                "what you won't do; working faster won't close the gap.",
                 weight=1.8,
             ),
         )
@@ -115,11 +124,11 @@ def build_lead_time(facts) -> Section:
         return Section(
             key=KEY_LEAD_TIME,
             label="Lead time",
-            summary="nothing completed in this period",
+            summary=f"nothing was finished this {facts.period.kind}",
             measured=False,
             coverage=(
                 Coverage(
-                    label="completed tasks had usable dates",
+                    label="finished tasks had a creation date",
                     observed=0,
                     total=len(completed),
                 ),
@@ -131,14 +140,15 @@ def build_lead_time(facts) -> Section:
     p90 = _percentile(spans, 0.9)
     longest = max(spans)
     summary = (
-        f"median {humanize_duration(median)} · "
-        f"90th {humanize_duration(p90)} · longest {humanize_duration(longest)}"
+        f"a typical task waited {humanize_duration(median)} from creation to "
+        f"done; the longest wait was {humanize_duration(longest)}"
     )
     detail = (
-        f"Median            {humanize_duration(median)} from created to done",
-        f"90th percentile   {humanize_duration(p90)}",
+        f"Median            {humanize_duration(median)}",
+        f"Slowest 10%       {humanize_duration(p90)} or more",
         f"Longest           {humanize_duration(longest)}",
         f"Shortest          {humanize_duration(min(spans))}",
+        f"Based on          {plural(len(spans), 'finished task')}",
     )
 
     return Section(
@@ -148,7 +158,7 @@ def build_lead_time(facts) -> Section:
         detail=detail,
         coverage=(
             Coverage(
-                label="completed tasks had usable dates",
+                label="finished tasks had a creation date",
                 qualifies="Median",
                 observed=len(spans),
                 total=len(completed),

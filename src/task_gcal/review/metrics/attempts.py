@@ -19,13 +19,15 @@ from collections import Counter
 
 from ...intervals import humanize_minutes
 from ..model import Coverage, Section, Suggestion
+from ..words import plural
 
 KEY = "sittings"
 
 # What this section means, in plain language, for a report's glossary.
 MEANS = (
-    "How many separate sittings a finished task actually took. Two blocks "
-    "for a task you called an hour means it was really two hours."
+    "How many blocks each finished task took. A task estimated at an hour "
+    "that took three blocks needed about three hours of booked time, which "
+    "says how far off your estimates run."
 )
 
 # Below this many completed tasks the average is a rumour, not a finding.
@@ -62,11 +64,11 @@ def build(facts) -> Section:
         return Section(
             key=KEY,
             label="Sittings",
-            summary="no completed task had a block that had ended",
+            summary="no finished task had a block before it was done",
             measured=False,
             coverage=(
                 Coverage(
-                    label="completed tasks had an observed block",
+                    label="finished tasks had a block",
                     observed=0,
                     total=len(completed),
                 ),
@@ -80,42 +82,45 @@ def build(facts) -> Section:
     distribution = Counter(counts.values())
 
     summary = (
-        f"{average:.1f} blocks per completed task · "
-        f"{len(multi)} needed more than one"
+        f"finished tasks took {average:.1f} blocks on average; "
+        f"{len(multi)} of {len(counts)} needed more than one"
     )
 
     by_uuid = {t.uuid: t for t in completed}
     detail = [
-        f"Completed with a block  {len(counts)} of {len(completed)}",
-        f"Blocks used             {total_blocks}",
-        f"Average per task        {average:.1f}",
-        "Distribution:",
+        f"Tasks with blocks  {len(counts)} of {len(completed)} finished",
+        f"Blocks used        {total_blocks}",
+        f"Average per task   {average:.1f}",
+        "Blocks per task:",
     ]
     for blocks, tasks in sorted(distribution.items()):
-        detail.append(f"  {blocks} block(s): {tasks} task(s)")
+        detail.append(f"  {plural(blocks, 'block'):<9}  {plural(tasks, 'task')}")
 
     worst = sorted(multi.items(), key=lambda item: item[1], reverse=True)[:5]
     if worst:
-        detail.append("Most sittings:")
+        detail.append("Took the most blocks:")
         for uuid, blocks in worst:
             task = by_uuid[uuid]
-            estimate = humanize_minutes(task.estimate_minutes)
-            detail.append(
-                f"  {blocks}x  estimated {estimate}  "
-                f"≈{humanize_minutes((task.estimate_minutes or 0) * blocks)} "
-                f"of planned time  {task.description}"
-            )
+            if task.estimate_minutes:
+                booked = (
+                    f"estimated {humanize_minutes(task.estimate_minutes)}, "
+                    f"{humanize_minutes(task.estimate_minutes * blocks)} booked"
+                )
+            else:
+                booked = "no estimate"
+            detail.append(f"  {blocks}x  {booked}  {task.description}")
     detail.append(
-        "A count, not a cause: an underestimate, an interruption and "
-        "deliberate multi-session work all look the same here."
+        "This counts blocks, not reasons: a low estimate, an interruption and "
+        "work meant to take several sittings all look the same here."
     )
 
     suggestions: tuple[Suggestion, ...] = ()
     if len(counts) >= _MIN_SAMPLE and average >= _STRETCHED:
         suggestions = (
             Suggestion(
-                f"Tasks took {average:.1f} blocks on average — your estimates "
-                f"are about {average:.0f}x short, or the blocks are too small.",
+                f"Finished tasks took {average:.1f} blocks on average, so "
+                f"your estimates run about {average:.0f}x short, or the "
+                "blocks are too short to finish anything in.",
                 weight=2.6,
             ),
         )
@@ -127,7 +132,7 @@ def build(facts) -> Section:
         detail=tuple(detail),
         coverage=(
             Coverage(
-                label="completed tasks had an observed block",
+                label="finished tasks had a block",
                 qualifies="Average per task",
                 observed=len(counts),
                 total=len(completed),
