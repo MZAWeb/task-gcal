@@ -40,6 +40,7 @@ def test_a_placement_is_recorded_against_the_event_it_landed_in(harness):
 
 
 def test_a_scheduling_run_records_why_a_block_moved(harness):
+    harness.configure(settle_days=2)
     settled = managed_event(id="ev1", task_uuid="u1", start=at(1, 14), end=at(1, 15))
     harness.tasks(task_row(uuid="u1", due=FRI_5PM, estimate=60)).events(settled)
     harness.busy((at(1, 14), at(1, 15)))

@@ -16,8 +16,8 @@ On every manual run:
 3. Reconciles:
    - Future events for tasks neither list contains any more (done,
      deleted, etc.) are removed. Past events are kept as history.
-   - Blocks starting within `settle_days` (default 2) stay where they
-     are, unless they've become invalid (see below). Everything else is
+   - Blocks starting within `settle_days` (default 0, i.e. off) stay
+     where they are, unless they've become invalid (see below). Everything else is
      placed at the earliest aligned working-hours slot of length
      `estimate` minutes that ends on or before the task's due date and
      does not overlap any timed event on the calendar. A task's
@@ -54,7 +54,8 @@ calendar mutations.
 ### Schedule stability
 
 A block you've planned your day around shouldn't move because a meeting
-got cancelled. So a placement starting within `settle_days` (default 2)
+got cancelled. So with `settle_days` set (it defaults to 0, which turns
+this off; 2 is a good value), a placement starting within that many days
 is a commitment: it's kept unless it has become **invalid**, which means
 exactly one of
 
@@ -73,9 +74,9 @@ made the calendar untrustworthy. When a block does move, the report says
 why (`(moved: overlaps a calendar event)`).
 
 Beyond the window nothing is sticky — you haven't planned next Thursday
-yet, so re-optimizing it is free. `task-gcal --reoptimize` (or
-`settle_days = 0`) gives up every near-term placement and takes the
-earliest fit, as the tool used to. An in-progress block is always
+yet, so re-optimizing it is free. With the default `settle_days = 0`
+(or a one-off `task-gcal --reoptimize`) nothing near-term is kept and
+every block takes the earliest fit in urgency order. An in-progress block is always
 sticky, whatever `settle_days` says.
 
 ### Work that hasn't arrived yet
@@ -579,7 +580,7 @@ schedule_waiting    = true         # also book tasks deferred by `wait`
 timezone            = "Europe/London"   # omit to use the system local zone
 overdue_horizon_days = 30          # how far ahead overdue tasks may land
 lookback_days       = 7            # how far back to scan for our own events
-settle_days         = 2            # blocks this close stay put unless invalid
+settle_days         = 0            # blocks this close stay put unless invalid (0 = off)
 removal_guard_ratio = 0.5          # max share of our events one run may remove
 journal_detail      = "full"       # full | minimal | off
 ```

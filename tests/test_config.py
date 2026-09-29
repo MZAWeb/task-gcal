@@ -37,6 +37,7 @@ def test_defaults_are_the_documented_ones():
     assert s.calendar_id == "primary"
     assert s.overdue_horizon_days == 30
     assert s.lookback_days == 7
+    assert s.settle_days == 0
     assert s.removal_guard_ratio == 0.5
     assert s.schedule_waiting is True
     assert s.attendees == ()

@@ -21,7 +21,7 @@ Example config.toml:
     timezone        = "Europe/London"   # omit to use the system local zone
     overdue_horizon_days = 30
     lookback_days   = 7
-    settle_days     = 2                 # near-term placements stay put
+    settle_days     = 2                 # near-term placements stay put (default 0)
     override_uda    = "gcal"            # task UDA holding per-task overrides
     removal_guard_ratio = 0.5           # max share of our events one run may remove
     journal_detail  = "full"            # full | minimal | off
@@ -99,8 +99,9 @@ class Settings:
     lookback_days: int = 7
     # A placement starting within this many days is a commitment: keep it
     # unless it has become invalid, rather than chasing the earliest slot
-    # that fits. 0 restores always-earliest placement. See `stability.py`.
-    settle_days: int = 2
+    # that fits. 0 (the default) means always-earliest placement by urgency.
+    # See `stability.py`.
+    settle_days: int = 0
     # Fraction of our own unfinished events a single run may remove before
     # it refuses and asks for `--force`. Guards against one bad input
     # (empty task source, wrong UDA name) turning a run into a mass

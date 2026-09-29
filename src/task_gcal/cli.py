@@ -191,7 +191,7 @@ def _overrides_parent() -> argparse.ArgumentParser:
     g.add_argument(
         "--settle-days", dest="settle_days", type=int, metavar="DAYS",
         help="Keep placements starting within this many days unless they "
-             "become invalid; 0 always takes the earliest slot (default: 2).",
+             "become invalid; 0 always takes the earliest slot (default: 0).",
     )
     g.add_argument(
         "--removal-guard-ratio", dest="removal_guard_ratio", type=float,

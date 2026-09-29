@@ -162,6 +162,7 @@ def test_an_in_progress_task_is_never_reported_as_past_due(harness):
 # ---------------------------------------------------------------------------
 
 def test_a_settled_block_is_not_pulled_earlier(harness):
+    harness.configure(settle_days=2)
     # Tomorrow 14:00 while today 09:00 is wide open. Earliest-fit would move
     # it; a block you've planned around must not move for a marginal gain.
     settled = managed_event(id="ev1", task_uuid="u1", start=at(1, 14), end=at(1, 15))
@@ -177,7 +178,8 @@ def test_a_settled_block_is_not_pulled_earlier(harness):
 
 
 def test_a_block_beyond_the_settle_window_is_re_optimized(harness):
-    # Day 3 is outside the default 2-day window: you haven't planned that
+    harness.configure(settle_days=2)
+    # Day 3 is outside a 2-day window: you haven't planned that
     # day yet, so taking the earlier slot is free.
     loose = managed_event(id="ev1", task_uuid="u1", start=at(3, 14), end=at(3, 15))
     harness.tasks(task_row(uuid="u1", due=FRI_5PM, estimate=60)).events(loose)
@@ -195,6 +197,7 @@ def test_settle_days_zero_restores_earliest_fit(harness):
 
 
 def test_a_settled_block_yields_when_a_meeting_lands_on_it(harness):
+    harness.configure(settle_days=2)
     settled = managed_event(id="ev1", task_uuid="u1", start=at(1, 14), end=at(1, 15))
     harness.tasks(task_row(uuid="u1", due=FRI_5PM, estimate=60)).events(settled)
     harness.busy((at(1, 14), at(1, 15)))
@@ -205,6 +208,7 @@ def test_a_settled_block_yields_when_a_meeting_lands_on_it(harness):
 
 
 def test_a_settled_block_yields_when_its_estimate_grows(harness):
+    harness.configure(settle_days=2)
     settled = managed_event(id="ev1", task_uuid="u1", start=at(1, 14), end=at(1, 15))
     harness.tasks(task_row(uuid="u1", due=FRI_5PM, estimate=120)).events(settled)
     res = harness.run()
@@ -216,6 +220,7 @@ def test_a_settled_block_yields_when_its_estimate_grows(harness):
 
 
 def test_a_settled_block_yields_when_the_due_date_moves_in_front_of_it(harness):
+    harness.configure(settle_days=2)
     # Tomorrow's block against a due date of today: a whole day earlier, not
     # an hour, because any time on the due day is in time.
     settled = managed_event(id="ev1", task_uuid="u1", start=at(1, 14), end=at(1, 15))
@@ -227,6 +232,7 @@ def test_a_settled_block_yields_when_the_due_date_moves_in_front_of_it(harness):
 
 
 def test_a_settled_block_survives_a_newly_urgent_task(harness):
+    harness.configure(settle_days=2)
     # The whole point of reserving settled blocks first: the urgent task
     # takes the earliest *free* slot, not the one already promised.
     settled = managed_event(id="ev1", task_uuid="calm", start=at(0, 9), end=at(0, 10))
@@ -241,6 +247,7 @@ def test_a_settled_block_survives_a_newly_urgent_task(harness):
 
 
 def test_a_settled_block_is_not_patched_at_all(harness):
+    harness.configure(settle_days=2)
     # Cost three of always re-deriving placements: pointless API calls, and
     # a notification for every block that has attendees.
     harness.tasks(task_row(uuid="u1", due=FRI_5PM, estimate=60))
@@ -252,6 +259,7 @@ def test_a_settled_block_is_not_patched_at_all(harness):
 
 
 def test_two_settled_blocks_that_overlap_resolve_in_favour_of_the_earlier(harness):
+    harness.configure(settle_days=2)
     # Only reachable by editing the calendar by hand, but it must not leave
     # both in place on top of each other.
     first = managed_event(id="ev1", task_uuid="a", start=at(0, 10), end=at(0, 11))
@@ -1022,6 +1030,7 @@ def test_a_waiting_tasks_own_block_is_not_an_orphan(harness):
 
 
 def test_a_settled_waiting_block_stays_where_it_is(harness):
+    harness.configure(settle_days=2)
     # Tomorrow at 14:00 with tomorrow morning wide open. Once a block is a
     # day away it has been on the calendar long enough to plan around,
     # whatever Taskwarrior is still hiding.
